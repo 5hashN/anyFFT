@@ -1,0 +1,34 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Shared libraries / extension modules
+anyFFT/*.so
+anyFFT/*.pyd
+*.dylib
+*.dll
+
+# Object files
+*.o
+*.obj
+
+# Build directories created by setuptools / pip
+build/
+dist/
+*.egg-info/
+
+# Makefile artifacts (if you ever use the old Makefile)
+*.out
+*.a
+
+# VSCode
+.vscode/
+*.code-workspace
+
+# macOS
+.DS_Store
+
+# Vim / Emacs
+*~
+*.swp
