@@ -9,7 +9,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "anyFFT"
-version = "0.0.1"
+version = "0.0.2"
+authors = [
+    {name="5hashN"}
+]
 description = "Serial and Parallel FFT bindings with pybind11 for CPU/GPU"
 readme = "README.md"
 requires-python = ">=3.9"

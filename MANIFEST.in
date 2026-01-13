@@ -1,0 +1,5 @@
+# MANIFEST.in content
+graft cpp
+include README.md
+include LICENSE
+global-exclude *.o *.so *.pyc .git*

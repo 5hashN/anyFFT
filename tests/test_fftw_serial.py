@@ -4,7 +4,7 @@ from anyFFT import FFT
 shape = [128, 128, 128]
 shapeF = [128, 128, 65]
 ndim = 3
-dtype = "float64"  # or "float64"
+dtype = "float64"
 backend = "fftw"
 
 if dtype == "float32":
@@ -14,7 +14,7 @@ else:
     dummy_real = np.empty(shape, dtype=np.float64)
     dummy_complex = np.empty(shapeF, dtype=np.complex128)
 
-fft = FFT(ndim, shape, dummy_real, dummy_complex, dtype, backend)
+fft = FFT(ndim, shape, input=dummy_real, output=dummy_complex, dtype=dtype, backend=backend)
 
 # Actual computation
 real_in = np.random.rand(*shape).astype(dummy_real.dtype)

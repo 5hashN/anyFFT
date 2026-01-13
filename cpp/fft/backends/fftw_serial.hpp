@@ -1,17 +1,16 @@
 #pragma once
-#include "../fft_base.hpp"
+#include "../includes/fft_base.hpp"
 #include <fftw3.h>
-#include <string>
-#include <vector>
 
 class FFTW_SERIAL : public FFTBase {
 private:
     std::vector<int> shape_;
     int ndim_;
-    void* plan_forward_;
-    void* plan_backward_;
     ssize_t N_;
     std::string dtype_;
+
+    void* plan_r2c_;
+    void* plan_c2r_;
 
 public:
     FFTW_SERIAL(int ndim,
@@ -20,8 +19,8 @@ public:
              py::array dummy_complex_out,
              const std::string& dtype);
 
-    void forward(py::array real_in, py::array complex_out) override;
-    void backward(py::array complex_in, py::array real_out) override;
+    void forward(py::object real_in_obj, py::object complex_out_obj) override;
+    void backward(py::object complex_in_obj, py::object real_out_obj) override;
 
     ~FFTW_SERIAL();
 };
