@@ -4,8 +4,8 @@ __pycache__/
 *$py.class
 
 # Shared libraries / extension modules
-anyFFT/*.so
-anyFFT/*.pyd
+*.so
+*.pyd
 *.dylib
 *.dll
 

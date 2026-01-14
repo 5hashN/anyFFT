@@ -1,16 +1,11 @@
 #pragma once
 #include "../includes/fft_base.hpp"
 #include <fftw3.h>
+#include <cstring>
 
 class FFTW_SERIAL : public FFTBase {
 private:
-    std::vector<int> shape_;
-    int ndim_;
-    ssize_t N_;
-    std::string dtype_;
-
-    void* plan_r2c_;
-    void* plan_c2r_;
+    std::unique_ptr<FFTBase> impl_;
 
 public:
     FFTW_SERIAL(int ndim,

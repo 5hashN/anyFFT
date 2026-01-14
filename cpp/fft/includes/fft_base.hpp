@@ -7,6 +7,7 @@
 #include <memory>
 #include <string>
 #include <stdexcept>
+#include <iostream>
 
 namespace py = pybind11;
 

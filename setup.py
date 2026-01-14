@@ -10,7 +10,7 @@ import numpy
 
 # Configuration
 NAME = "anyFFT"
-VERSION = "0.0.2"
+VERSION = "0.1.0"
 DESCRIPTION = "Serial and Parallel FFT bindings with pybind11 for CPU/GPU"
 
 # Dynamic Path Discovery
