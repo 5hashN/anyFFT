@@ -10,12 +10,46 @@ import numpy
 
 # Configuration
 NAME = "anyFFT"
-VERSION = "0.1.0"
+VERSION = "0.1.1"
 DESCRIPTION = "Serial and Parallel FFT bindings with pybind11 for CPU/GPU"
 
-# Dynamic Path Discovery
-# Try to find FFTW in standard locations or via env variable
-FFTW_ROOT = os.environ.get("FFTW_ROOT", None)
+# Helper: Path Discovery
+def get_env_path(env_var, default=None):
+    """Retrieves a path from env var, checking if it exists."""
+    path = os.environ.get(env_var, default)
+    if path and os.path.isdir(path):
+        return path
+    return None
+
+# MPI Detection
+ENABLE_MPI = False
+mpi_include_dirs = []
+mpi_lib_dirs = []
+mpi_libraries = []
+
+# Check User Environment Variable first
+MPI_HOME = get_env_path("MPI_HOME")
+
+if MPI_HOME:
+    ENABLE_MPI = True
+    print(f"Using MPI_HOME: {MPI_HOME}")
+    mpi_include_dirs.append(os.path.join(MPI_HOME, "include"))
+    mpi_lib_dirs.append(os.path.join(MPI_HOME, "lib"))
+    mpi_libraries.append("mpi") # Link against libmpi
+else:
+    # Fallback to mpi4py detection
+    try:
+        import mpi4py
+        ENABLE_MPI = True
+        mpi_include_dirs.append(mpi4py.get_include())
+        # We assume standard linker paths will find 'mpi' if not specified
+        mpi_libraries.append("mpi")
+        print("MPI_HOME not found. Falling back to mpi4py detection.")
+    except ImportError:
+        print("mpi4py not found. Skipping MPI backends.")
+
+# FFTW Detection
+FFTW_ROOT = get_env_path("FFTW_ROOT")
 
 # If not explicitly set, try to find it via Homebrew (macOS)
 if not FFTW_ROOT and sys.platform == "darwin":
@@ -42,9 +76,39 @@ if not os.path.exists(os.path.join(FFTW_INC, "fftw3.h")) and FFTW_ROOT == "/usr"
 HAS_FFTW = os.path.exists(os.path.join(FFTW_INC, "fftw3.h"))
 
 # CUDA Detection
-CUDA_HOME = os.environ.get("CUDA_HOME", "/usr/local/cuda")
+CUDA_HOME = get_env_path("CUDA_HOME", "/usr/local/cuda")
 NVCC_PATH = shutil.which("nvcc")
+
+# If nvcc isn't in PATH, try looking in CUDA_HOME
+if NVCC_PATH is None and CUDA_HOME:
+    candidate = os.path.join(CUDA_HOME, "bin", "nvcc")
+    if os.path.exists(candidate):
+        NVCC_PATH = candidate
+
 HAS_CUDA = NVCC_PATH is not None
+
+# Check if cufftMp header exists
+HAS_CUFFT_MPI = False
+if HAS_CUDA and ENABLE_MPI:
+    CUFFTMP_ROOT = get_env_path("CUFFTMP_ROOT", CUDA_HOME)
+
+    # Check common subdirectories for the header
+    possible_include_paths = [
+        os.path.join(CUFFTMP_ROOT, "include"),
+        os.path.join(CUFFTMP_ROOT, "math_libs", "include"), # Common in HPC SDK
+    ]
+
+    cufftmp_inc_found = None
+    for p in possible_include_paths:
+        if os.path.exists(os.path.join(p, "cufftMp.h")):
+            cufftmp_inc_found = p
+            break
+
+    if cufftmp_inc_found:
+        HAS_CUFFT_MPI = True
+        print(f"Found cuFFTMp header at {cufftmp_inc_found}")
+    else:
+        print(f"cuFFTMp header not found in {CUFFTMP_ROOT}. Skipping cuFFTMp backend.")
 
 # Safety Check
 if not HAS_FFTW and not HAS_CUDA:
@@ -62,15 +126,13 @@ if sys.platform == "darwin":
     # These are linker flags, not compiler flags
     extra_link_args.extend(["-undefined", "dynamic_lookup"])
 
-define_macros = []
-
 # Base includes
 include_dirs = [
     pybind11.get_include(),
     numpy.get_include(),
     sysconfig.get_path("include"),
     sysconfig.get_path("platinclude"),
-    "cpp"
+    "cpp",
     "cpp/fft",
     "cpp/fft/backends",
 ]
@@ -78,6 +140,7 @@ include_dirs = [
 sources = ["cpp/bindings/module.cpp"]
 libraries = ["m"]
 library_dirs = []
+define_macros = []
 
 # Conditional Backend Inclusion
 if HAS_FFTW:
@@ -87,6 +150,15 @@ if HAS_FFTW:
     include_dirs.append(FFTW_INC)
     library_dirs.append(FFTW_LIB)
     libraries.extend(["fftw3", "fftw3f"])
+
+    if ENABLE_MPI:
+        print("Enabling CPU MPI support (FFTW-MPI).")
+        sources.append("cpp/fft/backends/fftw_mpi.cpp")
+        define_macros.append(("ENABLE_FFTW_MPI", None))
+        include_dirs.extend(mpi_include_dirs)
+        library_dirs.extend(mpi_lib_dirs)
+        libraries.extend(["fftw3_mpi", "fftw3f_mpi"])
+        libraries.extend(mpi_libraries)
 else:
     print("FFTW not found. Skipping CPU backend.")
 
@@ -97,6 +169,7 @@ if HAS_CUDA:
     define_macros.append(("ENABLE_CUDA", None))
     include_dirs.append(os.path.join(CUDA_HOME, "include"))
 
+    # Handle lib64 vs lib folder structure
     cuda_lib64 = os.path.join(CUDA_HOME, "lib64")
     if os.path.isdir(cuda_lib64):
         library_dirs.append(cuda_lib64)
@@ -104,6 +177,22 @@ if HAS_CUDA:
         library_dirs.append(os.path.join(CUDA_HOME, "lib"))
 
     libraries.extend(["cufft", "cudart"])
+
+    if HAS_CUFFT_MPI:
+        sources.append("cpp/fft/backends/cufft_mpi.cu")
+        define_macros.append(("ENABLE_CUDA_MPI", None))
+
+        # Add MPI paths for CUDA backend
+        include_dirs.extend(mpi_include_dirs)
+        library_dirs.extend(mpi_lib_dirs)
+
+        # If we found cuFFTMp in a specific subfolder (like math_libs/include), add it
+        if cufftmp_inc_found:
+             include_dirs.append(cufftmp_inc_found)
+
+        # cuFFTMp libraries
+        libraries.extend(["cufftMp", "nvshmem"])
+        libraries.extend(mpi_libraries)
 
     # Custom Build Extension
     class BuildExtensionCuda(build_ext):
@@ -119,8 +208,11 @@ if HAS_CUDA:
                         obj_path = os.path.splitext(source)[0] + ".o"
 
                         cmd = [ NVCC_PATH, "-c", source, "-o", obj_path,
-                            "-std=c++17", "-Xcompiler", "-fPIC", "-DENABLE_CUDA"
+                            "-std=c++17", "-Xcompiler", "-fPIC"
                         ]
+
+                        for macro, val in ext.define_macros:
+                            cmd.append(f"-D{macro}")
 
                         # Add Include Paths
                         for inc in ext.include_dirs:

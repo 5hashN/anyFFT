@@ -3,9 +3,20 @@ CXX      := clang++
 NVCC     := nvcc
 
 # Configuration
-# Detect or set CUDA_HOME (Defaults to /usr/local/cuda)
-CUDA_HOME ?= /usr/local/cuda
-CUDA_LIB  := $(CUDA_HOME)/lib64
+ENABLE_MPI ?= 0
+ENABLE_CUDA_MPI ?= 0
+USE_CUDA ?= 0
+
+ifeq ($(ENABLE_MPI), 1)
+    # Switch compiler to MPI wrapper
+    CXX := mpic++
+
+    # Add MPI Macro
+    CXXFLAGS += -DENABLE_FFTW_MPI
+
+    # Link FFTW MPI libraries
+    LDFLAGS += -lfftw3_mpi -lfftw3f_mpi -lmpi
+endif
 
 # FFTW Paths
 FFTW_INC := /opt/homebrew/Cellar/fftw/3.3.10_2/include
@@ -31,8 +42,9 @@ ifeq ($(UNAME_S), Darwin)
     LDFLAGS += -undefined dynamic_lookup
 endif
 
-# CUDA Conditional Logic
-USE_CUDA ?= 0
+# Detect or set CUDA_HOME (Defaults to /usr/local/cuda)
+CUDA_HOME ?= /usr/local/cuda
+CUDA_LIB  := $(CUDA_HOME)/lib64
 
 ifeq ($(USE_CUDA), 1)
     # Define Macro so C++ code knows to include CUDA headers
@@ -44,6 +56,12 @@ ifeq ($(USE_CUDA), 1)
 
     # Add CUDA sources and libraries
     SOURCES_CU := cpp/fft/backends/cufft_serial.cu
+
+    # cuFFTMp
+    ifeq ($(ENABLE_CUDA_MPI), 1)
+        SOURCES_CU += cpp/fft/backends/cufft_mpi.cu
+    endif
+
     OBJS_CU    := $(SOURCES_CU:.cu=.o)
 
     # Add CUDA library paths to linker
@@ -56,6 +74,11 @@ endif
 # Source Definitions
 SOURCES_CPP := cpp/bindings/module.cpp \
                cpp/fft/backends/fftw_serial.cpp
+
+# Add MPI Source
+ifeq ($(ENABLE_MPI), 1)
+    SOURCES_CPP += cpp/fft/backends/fftw_mpi.cpp
+endif
 
 OBJS_CPP    := $(SOURCES_CPP:.cpp=.o)
 
@@ -88,5 +111,5 @@ clean:
 	rm -rf dist/
 	rm -rf python/*.egg-info
 
-	find python -name "*.so" -delete
-	find python -name "__pycache__" -type d -exec rm -rf {} +
+	find . -name "*.so" -delete
+	find . -name "__pycache__" -type d -exec rm -rf {} +

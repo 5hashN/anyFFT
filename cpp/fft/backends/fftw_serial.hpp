@@ -9,10 +9,10 @@ private:
 
 public:
     FFTW_SERIAL(int ndim,
-             const std::vector<int>& shape,
-             py::array dummy_real_in,
-             py::array dummy_complex_out,
-             const std::string& dtype);
+                const std::vector<int>& shape,
+                py::array dummy_real_in,
+                py::array dummy_complex_out,
+                const std::string& dtype);
 
     void forward(py::object real_in_obj, py::object complex_out_obj) override;
     void backward(py::object complex_in_obj, py::object real_out_obj) override;

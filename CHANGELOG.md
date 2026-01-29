@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.1] - 2026-01-29
+
+- preliminary support for parallel mpi modules
+- tested for fftw-mpi c2c in-place and out-of-place transforms, and r2c in-place transforms
+- `setup.py` improved for providing libraries through environment variables
+
 ## [0.1.0] - 2026-01-14
 
 - implementation for r2c, c2r, c2c for fftw and cufft

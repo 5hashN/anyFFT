@@ -2,12 +2,14 @@
 #include <pybind11/numpy.h>
 #include <pybind11/pytypes.h>
 #include <pybind11/stl.h>
-#include <vector>
-#include <complex>
-#include <memory>
-#include <string>
 #include <stdexcept>
 #include <iostream>
+#include <memory>
+#include <utility>
+#include <vector>
+#include <complex>
+#include <string>
+#include <tuple>
 
 namespace py = pybind11;
 

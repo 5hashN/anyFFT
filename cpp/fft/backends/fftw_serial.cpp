@@ -1,6 +1,6 @@
 #include "fftw_serial.hpp"
 
-// C2C (Complex-to-Complex)
+// C2C
 class FFTW_C2C : public FFTBase {
     std::vector<int> shape_;
     int ndim_;
@@ -197,34 +197,34 @@ public:
          void* ptr = data.mutable_data();
 
          if (dtype_ == "float64") {
-             double* r_ptr = static_cast<double*>(ptr);
-             fftw_complex* c_ptr = reinterpret_cast<fftw_complex*>(ptr);
+            double* r_ptr = static_cast<double*>(ptr);
+            fftw_complex* c_ptr = reinterpret_cast<fftw_complex*>(ptr);
 
-             if (ndim_ == 1) {
-                 plan_r2c_ = fftw_plan_dft_r2c_1d(shape_[0], r_ptr, c_ptr, FFTW_ESTIMATE);
-                 plan_c2r_ = fftw_plan_dft_c2r_1d(shape_[0], c_ptr, r_ptr, FFTW_ESTIMATE);
-             } else if (ndim_ == 2) {
-                 plan_r2c_ = fftw_plan_dft_r2c_2d(shape_[0], shape_[1], r_ptr, c_ptr, FFTW_ESTIMATE);
-                 plan_c2r_ = fftw_plan_dft_c2r_2d(shape_[0], shape_[1], c_ptr, r_ptr, FFTW_ESTIMATE);
-             } else if (ndim_ == 3) {
-                 plan_r2c_ = fftw_plan_dft_r2c_3d(shape_[0], shape_[1], shape_[2], r_ptr, c_ptr, FFTW_ESTIMATE);
-                 plan_c2r_ = fftw_plan_dft_c2r_3d(shape_[0], shape_[1], shape_[2], c_ptr, r_ptr, FFTW_ESTIMATE);
-             }
+            if (ndim_ == 1) {
+                plan_r2c_ = fftw_plan_dft_r2c_1d(shape_[0], r_ptr, c_ptr, FFTW_ESTIMATE);
+                plan_c2r_ = fftw_plan_dft_c2r_1d(shape_[0], c_ptr, r_ptr, FFTW_ESTIMATE);
+            } else if (ndim_ == 2) {
+                plan_r2c_ = fftw_plan_dft_r2c_2d(shape_[0], shape_[1], r_ptr, c_ptr, FFTW_ESTIMATE);
+                plan_c2r_ = fftw_plan_dft_c2r_2d(shape_[0], shape_[1], c_ptr, r_ptr, FFTW_ESTIMATE);
+            } else if (ndim_ == 3) {
+                plan_r2c_ = fftw_plan_dft_r2c_3d(shape_[0], shape_[1], shape_[2], r_ptr, c_ptr, FFTW_ESTIMATE);
+                plan_c2r_ = fftw_plan_dft_c2r_3d(shape_[0], shape_[1], shape_[2], c_ptr, r_ptr, FFTW_ESTIMATE);
+            }
          }
          else if (dtype_ == "float32") {
-             float* r_ptr = static_cast<float*>(ptr);
-             fftwf_complex* c_ptr = reinterpret_cast<fftwf_complex*>(ptr);
+            float* r_ptr = static_cast<float*>(ptr);
+            fftwf_complex* c_ptr = reinterpret_cast<fftwf_complex*>(ptr);
 
-             if (ndim_ == 1) {
-                 plan_r2c_ = fftwf_plan_dft_r2c_1d(shape_[0], r_ptr, c_ptr, FFTW_ESTIMATE);
-                 plan_c2r_ = fftwf_plan_dft_c2r_1d(shape_[0], c_ptr, r_ptr, FFTW_ESTIMATE);
-             } else if (ndim_ == 2) {
-                 plan_r2c_ = fftwf_plan_dft_r2c_2d(shape_[0], shape_[1], r_ptr, c_ptr, FFTW_ESTIMATE);
-                 plan_c2r_ = fftwf_plan_dft_c2r_2d(shape_[0], shape_[1], c_ptr, r_ptr, FFTW_ESTIMATE);
-             } else if (ndim_ == 3) {
-                 plan_r2c_ = fftwf_plan_dft_r2c_3d(shape_[0], shape_[1], shape_[2], r_ptr, c_ptr, FFTW_ESTIMATE);
-                 plan_c2r_ = fftwf_plan_dft_c2r_3d(shape_[0], shape_[1], shape_[2], c_ptr, r_ptr, FFTW_ESTIMATE);
-             }
+            if (ndim_ == 1) {
+                plan_r2c_ = fftwf_plan_dft_r2c_1d(shape_[0], r_ptr, c_ptr, FFTW_ESTIMATE);
+                plan_c2r_ = fftwf_plan_dft_c2r_1d(shape_[0], c_ptr, r_ptr, FFTW_ESTIMATE);
+            } else if (ndim_ == 2) {
+                plan_r2c_ = fftwf_plan_dft_r2c_2d(shape_[0], shape_[1], r_ptr, c_ptr, FFTW_ESTIMATE);
+                plan_c2r_ = fftwf_plan_dft_c2r_2d(shape_[0], shape_[1], c_ptr, r_ptr, FFTW_ESTIMATE);
+            } else if (ndim_ == 3) {
+                plan_r2c_ = fftwf_plan_dft_r2c_3d(shape_[0], shape_[1], shape_[2], r_ptr, c_ptr, FFTW_ESTIMATE);
+                plan_c2r_ = fftwf_plan_dft_c2r_3d(shape_[0], shape_[1], shape_[2], c_ptr, r_ptr, FFTW_ESTIMATE);
+            }
          }
     }
 

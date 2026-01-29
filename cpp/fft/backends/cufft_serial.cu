@@ -144,9 +144,9 @@ public:
         int grid = (total_elements + block - 1) / block;
 
         if (dtype_ == "float64")
-             scale_kernel<double><<<grid, block>>>((double*)r_ptr, (double)N_, total_elements);
+            scale_kernel<double><<<grid, block>>>((double*)r_ptr, (double)N_, total_elements);
         else
-             scale_kernel<float><<<grid, block>>>((float*)r_ptr, (float)N_, total_elements);
+            scale_kernel<float><<<grid, block>>>((float*)r_ptr, (float)N_, total_elements);
 
         CUDA_CHECK(cudaDeviceSynchronize());
     }

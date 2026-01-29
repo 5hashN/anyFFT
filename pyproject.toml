@@ -3,13 +3,14 @@ requires = [
     "setuptools>=61",
     "wheel",
     "pybind11>=2.10",
-    "numpy"
+    "numpy",
+    "mpi4py; platform_system!='Windows'"
 ]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "anyFFT"
-version = "0.1.0"
+version = "0.1.1"
 authors = [
     {name="5hashN"}
 ]
@@ -20,6 +21,9 @@ dependencies = [
     "numpy",
     "pybind11"
 ]
+
+[project.optional-dependencies]
+mpi = ["mpi4py"]
 
 [project.urls]
 homepage = "https://github.com/5hashN/anyFFT"
