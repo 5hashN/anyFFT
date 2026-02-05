@@ -1,4 +1,11 @@
-#include "../includes/fftw_serial.hpp"
+/*
+anyFFT
+Copyright (C) 2026 5hashN
+All Rights Reserved.
+Demonstration only. No license granted.
+*/
+
+#include "anyfft/fftw_serial.hpp"
 
 class FFTW_C2C : public FFTBase {
     std::vector<int> shape_; int ndim_; ssize_t N_; std::string dtype_;

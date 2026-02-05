@@ -1,4 +1,11 @@
-#include "../includes/cufft_serial.cuh"
+/*
+anyFFT
+Copyright (C) 2026 5hashN
+All Rights Reserved.
+Demonstration only. No license granted.
+*/
+
+#include "anyfft/cufft_serial.cuh"
 
 // Helper Macros
 #define CUDA_CHECK(call) { \

@@ -1,3 +1,10 @@
+/*
+anyFFT
+Copyright (C) 2026 5hashN
+All Rights Reserved.
+Demonstration only. No license granted.
+*/
+
 #pragma once
 #include <mpi.h>
 

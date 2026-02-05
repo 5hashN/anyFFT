@@ -1,21 +1,28 @@
+/*
+anyFFT
+Copyright (C) 2026 5hashN
+All Rights Reserved.
+Demonstration only. No license granted.
+*/
+
 #include <pybind11/pybind11.h>
 #include <pybind11/numpy.h>
 #include <pybind11/stl.h>
 
 #ifdef ENABLE_FFTW
-#include "../fft/includes/fftw_serial.hpp"
+#include "anyfft/fftw_serial.hpp"
 #endif
 
 #ifdef ENABLE_FFTW_MPI
-#include "../fft/includes/fftw_mpi.hpp"
+#include "anyfft/fftw_mpi.hpp"
 #endif
 
 #ifdef ENABLE_CUDA
-#include "../fft/includes/cufft_serial.cuh"
+#include "anyfft/cufft_serial.cuh"
 #endif
 
 #ifdef ENABLE_CUDA_MPI
-#include "../fft/includes/cufft_mpi.cuh"
+#include "anyfft/cufft_mpi.cuh"
 #endif
 
 namespace py = pybind11;
@@ -23,31 +30,67 @@ using namespace pybind11::literals;
 
 // Helper Subclasses
 #ifdef ENABLE_FFTW
-class FFTW_SERIAL_GURU : public FFTW_SERIAL {
+class FFTW_SERIAL_GENERIC : public FFTW_SERIAL {
 public:
     using FFTW_SERIAL::FFTW_SERIAL;
 };
 #endif
 
 #ifdef ENABLE_FFTW_MPI
-class FFTW_MPI_GURU : public FFTW_MPI {
+class FFTW_MPI_GENERIC : public FFTW_MPI {
 public:
     using FFTW_MPI::FFTW_MPI;
 };
 #endif
 
 #ifdef ENABLE_CUDA
-class CUFFT_SERIAL_AXES : public CUFFT_SERIAL {
+class CUFFT_SERIAL_GENERIC : public CUFFT_SERIAL {
 public:
     using CUFFT_SERIAL::CUFFT_SERIAL;
 };
 #endif
 
 // Module Definition
-PYBIND11_MODULE(anyFFT, m) {
+PYBIND11_MODULE(_core, m) {
+
+std::string doc_str = "anyFFT Core Module\n"
+                       "\n"
+                       "High-performance C++ backend for serial and parallel FFT transforms.\n"
+                       "This module exposes optimized bindings for CPU (FFTW) and GPU (cuFFT) libraries.\n\n"
+                       "Compiled Configuration:\n"
+                       "-----------------------";
 
 #ifdef ENABLE_FFTW
-    py::class_<FFTW_SERIAL>(m, "fftw")
+    doc_str += "\n - [x] FFTW3 (Serial CPU)";
+#else
+    doc_str += "\n - [ ] FFTW3 (Serial CPU)";
+#endif
+
+#ifdef ENABLE_FFTW_MPI
+    doc_str += "\n - [x] FFTW3-MPI (Distributed CPU)";
+#else
+    doc_str += "\n - [ ] FFTW3-MPI (Distributed CPU)";
+#endif
+
+#ifdef ENABLE_CUDA
+    doc_str += "\n - [x] cuFFT (Serial GPU)";
+#else
+    doc_str += "\n - [ ] cuFFT (Serial GPU)";
+#endif
+
+#ifdef ENABLE_CUDA_MPI
+    doc_str += "\n - [x] cuFFTMp (Distributed GPU)";
+#else
+    doc_str += "\n - [ ] cuFFTMp (Distributed GPU)";
+#endif
+
+    doc_str += "\n\nFor usage, please import the wrapper class:\n"
+               "  from anyFFT import FFT";
+
+    m.doc() = doc_str.c_str();
+
+#ifdef ENABLE_FFTW
+    py::class_<FFTW_SERIAL>(m, "fftw_serial")
         .def(py::init([](int ndim, const std::vector<int>& shape, py::array input, py::array output, const std::string& dtype) {
             return new FFTW_SERIAL(ndim, shape, {}, input, output, dtype);
         }),
@@ -60,14 +103,14 @@ PYBIND11_MODULE(anyFFT, m) {
         .def("backward", &FFTW_SERIAL::backward);
 
     // Guru Interface
-    py::class_<FFTW_SERIAL_GURU>(m, "fftw_guru")
+    py::class_<FFTW_SERIAL_GENERIC>(m, "fftw_serial_generic")
         .def(py::init([](const std::vector<int>& shape, const std::vector<int>& axes, py::array input, py::array output, const std::string& dtype) {
-            return new FFTW_SERIAL_GURU(0, shape, axes, input, output, dtype);
+            return new FFTW_SERIAL_GENERIC(0, shape, axes, input, output, dtype);
         }),
             "shape"_a, "axes"_a, "input"_a, "output"_a, "dtype"_a,
-            "Generic FFTW backend")
-        .def("forward", &FFTW_SERIAL_GURU::forward)
-        .def("backward", &FFTW_SERIAL_GURU::backward);
+            "Generic FFTW backend (Guru)")
+        .def("forward", &FFTW_SERIAL_GENERIC::forward)
+        .def("backward", &FFTW_SERIAL_GENERIC::backward);
 #endif
 
 #ifdef ENABLE_FFTW_MPI
@@ -86,7 +129,7 @@ PYBIND11_MODULE(anyFFT, m) {
 #endif
 
 #ifdef ENABLE_CUDA
-    py::class_<CUFFT_SERIAL>(m, "cufft")
+    py::class_<CUFFT_SERIAL>(m, "cufft_serial")
         .def(py::init([](int ndim, const std::vector<int>& shape, const std::string& dtype) {
             return new CUFFT_SERIAL(ndim, shape, {}, dtype);
         }),
@@ -98,14 +141,14 @@ PYBIND11_MODULE(anyFFT, m) {
         .def("forward", &CUFFT_SERIAL::forward)
         .def("backward", &CUFFT_SERIAL::backward);
 
-    py::class_<CUFFT_SERIAL_AXES>(m, "cufft_generic")
+    py::class_<CUFFT_SERIAL_GENERIC>(m, "cufft_serial_generic")
         .def(py::init([](const std::vector<int>& shape, const std::vector<int>& axes, const std::string& dtype) {
-            return new CUFFT_SERIAL_AXES(0, shape, axes, dtype);
+            return new CUFFT_SERIAL_GENERIC(0, shape, axes, dtype);
         }),
             "shape"_a, "axes"_a, "dtype"_a,
             "Generic cuFFT backend (PlanMany)")
-        .def("forward", &CUFFT_SERIAL_AXES::forward)
-        .def("backward", &CUFFT_SERIAL_AXES::backward);
+        .def("forward", &CUFFT_SERIAL_GENERIC::forward)
+        .def("backward", &CUFFT_SERIAL_GENERIC::backward);
 #endif
 
 #ifdef ENABLE_CUDA_MPI

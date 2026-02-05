@@ -1,16 +1,30 @@
 # anyFFT
 
-anyFFT is a high-performance Python wrapper for standard FFT libraries, providing a unified interface for Serial and Parallel (MPI) transforms on both CPUs and GPUs. It uses `pybind11` to expose C++ speed with Python convenience.
+![Language](https://img.shields.io/badge/language-C%2B%2B%20%7C%20Python-blue)
+![Backend](https://img.shields.io/badge/backends-FFTW3%20%7C%20CUDA%20%7C%20MPI-green)
+
+anyFFT is a high-performance Python wrapper for standard FFT libraries, providing a unified interface for Serial and Parallel (MPI) transforms on both CPUs and GPUs. It avoids Python overhead by using `pybind11` for direct memory access and supports distributed memory (MPI) out of the box to expose C++ speed with Python convenience.
+
+```Plain text
+[Python Layer]  User Interface (NumPy/CuPy)
+      │
+      │
+[C++ Layer]     pybind11 Bindings (Zero-Copy)
+      │
+      │
+[Dispatcher]
+      │
+      ├──────── CPU: FFTW3 (Serial / MPI)
+      └──────── GPU: cuFFT (Serial / MPI)
+```
 
 ## Features
 
 - Unified API: Switch between backends (CPU/GPU) without changing your math logic.
-- CPU Backends:
-  - Serial: FFTW3
-  - Distributed: FFTW3-MPI (MPI-parallelized 3D FFTs)
-- GPU Backends:
-  - Serial: NVIDIA cuFFT
-  - Distributed: NVIDIA cuFFTMp (Multi-GPU/Multi-Node) [Experimental]
+- Zero-Copy Overhead: Direct access to underlying pointers prevents expensive data duplication.
+- Hardware Support:
+  - CPU: FFTW3 (Serial), FFTW3-MPI (Distributed)
+  - GPU: NVIDIA cuFFT (Serial), NVIDIA cuFFTMp (Multi-GPU) [Experimental]
 - Auto-Detection: The build system automatically detects available libraries and compiles only what your system supports.
 
 ## Backend Support (Serial)
@@ -25,7 +39,6 @@ anyFFT provides a unified `FFT` class, but the underlying libraries have differe
 | **Transforms** | C2C, R2C, C2R | C2C, R2C, C2R |
 | **Placement** | In-Place & Out-of-Place | In-Place & Out-of-Place |
 | **Axes** | Arbitrary (e.g., `axes=(0, 2)`) | Arbitrary (e.g., `axes=(0, 2)`) |
-| **Strides** | Fully Supported | Fully Supported |
 
 > **Note on R2C In-Place Transforms:**
 > Both backends require padding for In-Place Real-to-Complex transforms. The last dimension of the input array must be padded to accommodate the complex result (size $N/2 + 1$ complex elements). anyFFT handles the stride calculations automatically, provided the input buffer is sized correctly.
@@ -37,7 +50,7 @@ anyFFT provides a unified `FFT` class, but the underlying libraries have differe
 - Libraries (Optional but recommended):
   - FFTW3: For CPU support (`libfftw3-dev`, `libfftw3-mpi-dev`)
   - CUDA Toolkit: For GPU support (`nvcc`, `libcufft`)
-  - MPI: OpenMPI or MPICH (required for parallel backends)
+  - MPI: OpenMPI or MPICH (required for distributed backends)
 
 ## Installation
 
@@ -75,7 +88,7 @@ pip install -v .
 
 ### Serial FFTW
 
-```python
+```Python
 import numpy as np
 from anyFFT import FFT
 
@@ -115,3 +128,14 @@ fft.forward(data, out)
 ```
 
 For complete working examples of how to use anyFFT in both serial and parallel configurations, please refer to the test scripts included in the repository.
+
+## License
+
+**Copyright (C) 2026 5hashN. All Rights Reserved.**
+
+This repository is strictly for **demonstration purposes only**.
+No license is granted to use, modify, or distribute this code.
+
+**Note on Third-Party Libraries:**
+This project contains code interfaces for [FFTW3](http://www.fftw.org/) (GPL) and [NVIDIA CUDA](https://developer.nvidia.com/cuda-toolkit).
+This repository contains only the wrapper source code and does not include any third-party binaries.

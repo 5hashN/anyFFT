@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.3] - 2026-02-05
+
+- restructuring based on the "src layout" prescribed by PyPI
+- added license headers and updated `README.md`
+
 ## [0.1.2] - 2026-02-05
 
 - support for transforms along specified axes for serial modules

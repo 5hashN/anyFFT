@@ -1,4 +1,11 @@
-#include "../includes/fftw_mpi.hpp"
+/*
+anyFFT
+Copyright (C) 2026 5hashN
+All Rights Reserved.
+Demonstration only. No license granted.
+*/
+
+#include "anyfft/fftw_mpi.hpp"
 
 // STATIC HELPER: Layout Calculator
 std::tuple<std::vector<long>, std::vector<long>, std::vector<long>, std::vector<long>>

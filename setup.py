@@ -8,11 +8,6 @@ from setuptools.command.build_ext import build_ext
 import pybind11
 import numpy
 
-# Configuration
-NAME = "anyFFT"
-VERSION = "0.1.2"
-DESCRIPTION = "Serial and Parallel FFT bindings with pybind11 for CPU/GPU"
-
 # Helper: Path Discovery
 def get_env_path(env_var, default=None):
     """Retrieves a path from env var, checking if it exists."""
@@ -132,12 +127,11 @@ include_dirs = [
     numpy.get_include(),
     sysconfig.get_path("include"),
     sysconfig.get_path("platinclude"),
-    "cpp",
-    "cpp/fft",
-    "cpp/fft/backends",
+    "cpp/include",
+    "cpp/src",
 ]
 
-sources = ["cpp/bindings/module.cpp"]
+sources = ["cpp/src/module.cpp"]
 libraries = ["m"]
 library_dirs = []
 define_macros = []
@@ -145,7 +139,7 @@ define_macros = []
 # Conditional Backend Inclusion
 if HAS_FFTW:
     print(f"FFTW found at {FFTW_INC}. Enabling CPU support.")
-    sources.append("cpp/fft/backends/fftw_serial.cpp")
+    sources.append("cpp/src/fftw/fftw_serial.cpp")
     define_macros.append(("ENABLE_FFTW", None))
     include_dirs.append(FFTW_INC)
     library_dirs.append(FFTW_LIB)
@@ -153,7 +147,7 @@ if HAS_FFTW:
 
     if ENABLE_MPI:
         print("Enabling CPU MPI support (FFTW-MPI).")
-        sources.append("cpp/fft/backends/fftw_mpi.cpp")
+        sources.append("cpp/src/fftw/fftw_mpi.cpp")
         define_macros.append(("ENABLE_FFTW_MPI", None))
         include_dirs.extend(mpi_include_dirs)
         library_dirs.extend(mpi_lib_dirs)
@@ -165,7 +159,7 @@ else:
 cmdclass = {}
 if HAS_CUDA:
     print(f"CUDA found at {NVCC_PATH}. Enabling GPU support.")
-    sources.append("cpp/fft/backends/cufft_serial.cu")
+    sources.append("cpp/src/cufft/cufft_serial.cu")
     define_macros.append(("ENABLE_CUDA", None))
     include_dirs.append(os.path.join(CUDA_HOME, "include"))
 
@@ -179,7 +173,7 @@ if HAS_CUDA:
     libraries.extend(["cufft", "cudart"])
 
     if HAS_CUFFT_MPI:
-        sources.append("cpp/fft/backends/cufft_mpi.cu")
+        sources.append("cpp/src/cufft/cufft_mpi.cu")
         define_macros.append(("ENABLE_CUDA_MPI", None))
 
         # Add MPI paths for CUDA backend
@@ -188,7 +182,7 @@ if HAS_CUDA:
 
         # If we found cuFFTMp in a specific subfolder (like math_libs/include), add it
         if cufftmp_inc_found:
-             include_dirs.append(cufftmp_inc_found)
+            include_dirs.append(cufftmp_inc_found)
 
         # cuFFTMp libraries
         libraries.extend(["cufftMp", "nvshmem"])
@@ -238,7 +232,7 @@ else:
 # Extension Definition
 ext_modules = [
     Extension(
-        f"{NAME}.anyFFT",
+        "anyFFT._core",
         sources=sources,
         include_dirs=include_dirs,
         library_dirs=library_dirs,
@@ -251,12 +245,8 @@ ext_modules = [
 ]
 
 setup(
-    name=NAME,
-    version=VERSION,
-    description=DESCRIPTION,
     ext_modules=ext_modules,
-    package_dir={"": "python"},
-    packages=find_packages(where="python"),
+    package_dir={"": "src"},
+    packages=find_packages(where="src"),
     cmdclass=cmdclass,
-    zip_safe=False,
 )

@@ -1,3 +1,10 @@
+/*
+anyFFT
+Copyright (C) 2026 5hashN
+All Rights Reserved.
+Demonstration only. No license granted.
+*/
+
 #pragma once
 #include <pybind11/numpy.h>
 #include <pybind11/pytypes.h>
@@ -11,6 +18,7 @@
 #include <vector>
 #include <complex>
 #include <string>
+#include <cstring>
 #include <tuple>
 
 #include <algorithm>

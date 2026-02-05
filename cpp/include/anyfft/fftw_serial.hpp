@@ -1,8 +1,14 @@
+/*
+anyFFT
+Copyright (C) 2026 5hashN
+All Rights Reserved.
+Demonstration only. No license granted.
+*/
+
 #pragma once
 #include "fft_base.hpp"
 #include <fftw3.h>
-#include <cstring>
-
+#
 class FFTW_SERIAL : public FFTBase {
 private:
     std::unique_ptr<FFTBase> impl_;

@@ -1,5 +1,14 @@
-# MANIFEST.in content
-graft cpp
 include README.md
 include LICENSE
-global-exclude *.o *.so *.pyc .git*
+include pyoroject.toml
+include setup.py
+
+graft cpp/include
+graft cpp/src
+
+global-exclude *.o
+global-exclude *.so
+global-exclude *.pyc
+global-exclude .git*
+global-exclude *.dylib
+global-exclude __pycache__
