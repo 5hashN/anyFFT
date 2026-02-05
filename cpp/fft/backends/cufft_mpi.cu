@@ -1,4 +1,4 @@
-#include "cufft_mpi.cuh"
+#include "../includes/cufft_mpi.cuh"
 
 // Helper Macros
 #define CUDA_CHECK(call) { \

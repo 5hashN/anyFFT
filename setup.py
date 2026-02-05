@@ -10,7 +10,7 @@ import numpy
 
 # Configuration
 NAME = "anyFFT"
-VERSION = "0.1.1"
+VERSION = "0.1.2"
 DESCRIPTION = "Serial and Parallel FFT bindings with pybind11 for CPU/GPU"
 
 # Helper: Path Discovery
@@ -205,10 +205,15 @@ if HAS_CUDA:
                 if cuda_sources:
                     for source in cuda_sources:
                         # Compile .cu file to .o file
-                        obj_path = os.path.splitext(source)[0] + ".o"
+                        rel_path = os.path.relpath(source, start=".")
+                        obj_rel_path = os.path.splitext(rel_path)[0] + ".o"
+                        obj_path = os.path.join(self.build_temp, obj_rel_path)
+
+                        # Ensure directory exists in build_temp
+                        os.makedirs(os.path.dirname(obj_path), exist_ok=True)
 
                         cmd = [ NVCC_PATH, "-c", source, "-o", obj_path,
-                            "-std=c++17", "-Xcompiler", "-fPIC"
+                            "-std=c++17", "-Xcompiler", "-fPIC", "-arch=native"
                         ]
 
                         for macro, val in ext.define_macros:

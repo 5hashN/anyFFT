@@ -13,6 +13,23 @@ anyFFT is a high-performance Python wrapper for standard FFT libraries, providin
   - Distributed: NVIDIA cuFFTMp (Multi-GPU/Multi-Node) [Experimental]
 - Auto-Detection: The build system automatically detects available libraries and compiles only what your system supports.
 
+## Backend Support (Serial)
+
+anyFFT provides a unified `FFT` class, but the underlying libraries have different hardware constraints.
+
+| Feature | CPU Backend (`fftw`) | GPU Backend (`cufft`) |
+| :--- | :--- | :--- |
+| **Library** | FFTW3 | NVIDIA cuFFT |
+| **Data Object** | `numpy.ndarray` | `cupy.ndarray` |
+| **Dimensions** | **N-Dimensional** (1D, 2D, 3D, 4D, ...) | **Max 3D** (1D, 2D, 3D) |
+| **Transforms** | C2C, R2C, C2R | C2C, R2C, C2R |
+| **Placement** | In-Place & Out-of-Place | In-Place & Out-of-Place |
+| **Axes** | Arbitrary (e.g., `axes=(0, 2)`) | Arbitrary (e.g., `axes=(0, 2)`) |
+| **Strides** | Fully Supported | Fully Supported |
+
+> **Note on R2C In-Place Transforms:**
+> Both backends require padding for In-Place Real-to-Complex transforms. The last dimension of the input array must be padded to accommodate the complex result (size $N/2 + 1$ complex elements). anyFFT handles the stride calculations automatically, provided the input buffer is sized correctly.
+
 ## Prerequisites
 
 - Compiler: C++17 compatible compiler (GCC, Clang, or MSVC).
@@ -56,11 +73,45 @@ pip install -v .
 
 ## Usage
 
+### Serial FFTW
+
+```python
+import numpy as np
+from anyFFT import FFT
+
+# Prepare Data
+shape = (128, 128)
+# Create Real input (for R2C transform)
+in_data = np.random.rand(*shape).astype(np.float64)
+# Output shape for R2C is (N, M/2 + 1)
+out_shape = (128, 128 // 2 + 1)
+out_data = np.zeros(out_shape, dtype=np.complex128)
+
+# Initialize FFTW plan
+# Note: We pass input/output arrays to optimize the plan for these specific memory layouts
+fft = FFT(ndim=2, shape=shape, dtype="float64", backend="fftw",
+          input=in_data, output=out_data)
+
+# Execute
+fft.forward(in_data, out_data)
+```
+
+### Serial cuFFT
+
+```Python
+import cupy as cp
+from anyFFT import FFT
+
+shape = (128, 128)
+# Data must be on GPU (CuPy)
+data = cp.random.rand(*shape).astype(cp.float64)
+out = cp.zeros((128, 65), dtype=cp.complex128)
+
+# Initialize cuFFT plan
+fft = FFT(ndim=2, shape=shape, dtype="float64", backend="cufft")
+
+# Execute on GPU
+fft.forward(data, out)
+```
+
 For complete working examples of how to use anyFFT in both serial and parallel configurations, please refer to the test scripts included in the repository.
-
-These scripts demonstrate exactly how to initialize the library, handle memory allocation for different backends (NumPy vs CuPy), and manage MPI data decomposition.
-
-- Serial CPU (FFTW): `test_fftw_serial.py`
-- Serial GPU (cuFFT): `test_cufft_serial.py`
-- Parallel CPU (FFTW-MPI): `test_fftw_mpi.py`
-- Parallel GPU (cuFFTMp): `test_cufft_mpi.py`

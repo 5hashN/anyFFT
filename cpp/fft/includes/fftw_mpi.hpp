@@ -1,6 +1,6 @@
 #pragma once
-#include "../includes/fft_base.hpp"
-#include "../includes/mpi_utils.hpp"
+#include "fft_base.hpp"
+#include "mpi_utils.hpp"
 #include <fftw3-mpi.h>
 
 class FFTW_MPI : public FFTBase {

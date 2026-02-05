@@ -1,6 +1,6 @@
 #pragma once
-#include "../includes/fft_base.hpp"
-#include "../includes/mpi_utils.hpp"
+#include "fft_base.hpp"
+#include "mpi_utils.hpp"
 #include <cufftMp.h>
 
 class CUFFT_MPI : public FFTBase {

@@ -1,7 +1,13 @@
 import numpy as np
-import cupy as cp
 import sys
 import test_utils
+
+# Import CuPy
+try:
+    import cupy as cp
+except ImportError:
+    print("Error: CuPy not installed.")
+    sys.exit(1)
 
 try:
     from anyFFT import FFT
@@ -11,134 +17,192 @@ except ImportError:
 
 BACKEND = "cufft"
 
-def test_r2c_out_of_place(dtype_str, shape, ndim):
-    test_utils.print_test_start("[R2C Out-Place]", dtype_str)
+FAILED_TESTS = []
+TOTAL_TESTS = 0
+PASSED_TESTS = 0
 
+def setup_r2c_inplace_buffer_gpu(shape, dtype_str, axes=None):
+    """
+    Helper to create a padded GPU buffer for In-Place R2C transforms.
+    Allocates the Complex (output) size, then views it as Real to create the Input.
+    """
     real_dtype, complex_dtype = test_utils.get_cupy_types(dtype_str)
-    # Get numpy types for host generation
-    np_real, _ = test_utils.get_numpy_types(dtype_str)
 
-    shape_f = list(shape)
-    shape_f[-1] = shape_f[-1] // 2 + 1
+    complex_shape = list(shape)
+    target_axis = axes[-1] if axes else -1
+    complex_shape[target_axis] = complex_shape[target_axis] // 2 + 1
 
-    dummy_real = cp.empty(shape, dtype=real_dtype)
-    dummy_complex = cp.empty(shape_f, dtype=complex_dtype)
+    buffer_complex = cp.zeros(complex_shape, dtype=complex_dtype)
 
-    try:
-        fft = FFT(ndim, shape, input=dummy_real, output=dummy_complex, dtype=dtype_str, backend=BACKEND)
-    except Exception as e:
-        test_utils.print_test_result(0, error=e)
-        return
+    buffer_real_view = buffer_complex.view(real_dtype)
+    slices = [slice(None)] * len(shape)
+    slices[target_axis] = slice(0, shape[target_axis])
 
-    # Generate on Host -> Transfer to Device
-    real_in_host = test_utils.generate_data(shape, np_real)
-    real_in = cp.asarray(real_in_host)
+    input_real_slice = buffer_real_view[tuple(slices)]
 
-    complex_out = cp.empty(shape_f, dtype=complex_dtype)
-    real_back = cp.empty(shape, dtype=real_dtype)
+    return buffer_complex, input_real_slice
 
-    fft.forward(real_in, complex_out)
-    fft.backward(complex_out, real_back)
+def run_cufft_test(label, shape, dtype_str, axes=None, ndim=None, is_r2c=False, is_inplace=False):
+    """
+    Unified CuPy test runner. Records failures to global list.
+    """
+    global TOTAL_TESTS, PASSED_TESTS
+    TOTAL_TESTS += 1
 
-    diff = cp.max(cp.abs(real_in - real_back)).item()
-    test_utils.print_test_result(diff)
+    if is_r2c:
+        test_type = "R2C"
+        full_dtype_str = dtype_str
+        real_dtype_np, _ = test_utils.get_numpy_types(dtype_str)
+        _, complex_dtype_cp = test_utils.get_cupy_types(dtype_str)
+    else:
+        test_type = "C2C"
+        full_dtype_str = test_utils.get_c2c_dtype_str(dtype_str)
+        _, complex_dtype_np = test_utils.get_numpy_types(dtype_str)
+        _, complex_dtype_cp = test_utils.get_cupy_types(dtype_str)
 
-def test_r2c_in_place(dtype_str, shape, ndim):
-    test_utils.print_test_start("[R2C In-Place ]", dtype_str)
+    place_str = "In-Place" if is_inplace else "Out-Place"
+    config_str = f"axes={axes}" if axes else f"ndim={ndim}"
 
-    real_dtype, complex_dtype = test_utils.get_cupy_types(dtype_str)
-    np_real, _ = test_utils.get_numpy_types(dtype_str)
+    test_id = f"{label} {test_type} {place_str} | {config_str} | {shape} | {dtype_str}"
+    header_lbl = f"[{test_type} {place_str}] {config_str}"
 
-    shape_f = list(shape)
-    shape_f[-1] = shape_f[-1] // 2 + 1
-
-    data_buffer = cp.zeros(shape_f, dtype=complex_dtype)
-    real_view = data_buffer.view(real_dtype)
-    valid_n = shape[-1]
-
-    # Host -> Device
-    clean_input_host = test_utils.generate_data(shape, np_real)
-    clean_input = cp.asarray(clean_input_host)
-
-    real_view[..., :valid_n] = clean_input
+    test_utils.print_test_start(header_lbl, full_dtype_str)
 
     try:
-        fft = FFT(ndim, shape, input=data_buffer, output=data_buffer, dtype=dtype_str, backend=BACKEND)
+        if not is_r2c:
+            host_data = test_utils.generate_data(shape, complex_dtype_np)
+        else:
+            host_data = test_utils.generate_data(shape, real_dtype_np)
+
+        # Explicit transfer: ref_gpu is strictly a CuPy array.
+        ref_gpu = cp.asarray(host_data)
+
+        if not is_r2c:
+            if is_inplace:
+                in_buffer = cp.copy(ref_gpu)
+                out_buffer = in_buffer
+            else:
+                in_buffer = ref_gpu
+                out_buffer = cp.zeros_like(ref_gpu)
+        else:
+            if is_inplace:
+                buffer_complex, input_real_slice = setup_r2c_inplace_buffer_gpu(shape, dtype_str, axes)
+                input_real_slice[:] = ref_gpu
+                in_buffer = input_real_slice
+                out_buffer = buffer_complex
+            else:
+                out_shape = list(shape)
+                target_ax = axes[-1] if axes else -1
+                out_shape[target_ax] = out_shape[target_ax] // 2 + 1
+
+                in_buffer = ref_gpu
+                out_buffer = cp.zeros(out_shape, dtype=complex_dtype_cp)
+
+        fft = FFT(ndim=len(shape), shape=tuple(shape), axes=tuple(axes) if axes else None,
+                  input=in_buffer, output=out_buffer,
+                  dtype=full_dtype_str, backend=BACKEND)
+
+        fft.forward(in_buffer, out_buffer)
+
+        if is_r2c:
+            if is_inplace:
+                fft.backward(out_buffer, in_buffer)
+                result_gpu = in_buffer
+            else:
+                back_buffer = cp.zeros_like(in_buffer)
+                fft.backward(out_buffer, back_buffer)
+                result_gpu = back_buffer
+        else:
+            if is_inplace:
+                fft.backward(out_buffer, out_buffer)
+                result_gpu = out_buffer
+            else:
+                back_buffer = cp.zeros_like(in_buffer)
+                fft.backward(out_buffer, back_buffer)
+                result_gpu = back_buffer
+
+        diff = cp.max(cp.abs(ref_gpu - result_gpu)).item()
+
+        tol = 1e-4 if "float32" in dtype_str or "complex64" in dtype_str else 1e-12
+
+        if diff < tol:
+            test_utils.print_test_result(diff, tol=tol)
+            PASSED_TESTS += 1
+            return True
+        else:
+            test_utils.print_test_result(diff, tol=tol)
+            FAILED_TESTS.append(f"{test_id} -> Failed (Diff: {diff:.2e} > {tol})")
+            return False
+
     except Exception as e:
         test_utils.print_test_result(0, error=e)
-        return
+        FAILED_TESTS.append(f"{test_id} -> Error: {str(e)}")
+        return False
 
-    fft.forward(data_buffer, data_buffer)
-    fft.backward(data_buffer, data_buffer)
-
-    result = real_view[..., :valid_n]
-    diff = cp.max(cp.abs(clean_input - result)).item()
-    test_utils.print_test_result(diff)
-
-def test_c2c_out_of_place(real_dtype_str, shape, ndim):
-    c_dtype_str = test_utils.get_c2c_dtype_str(real_dtype_str)
-    test_utils.print_test_start("[C2C Out-Place]", c_dtype_str)
-
-    _, complex_dtype = test_utils.get_cupy_types(real_dtype_str)
-    _, np_complex = test_utils.get_numpy_types(real_dtype_str)
-
-    in_data_host = test_utils.generate_data(shape, np_complex)
-    in_data = cp.asarray(in_data_host)
-
-    out_data = cp.empty_like(in_data)
-    back_data = cp.empty_like(in_data)
-
-    try:
-        fft = FFT(ndim, shape, input=in_data, output=out_data, dtype=c_dtype_str, backend=BACKEND)
-    except Exception as e:
-        test_utils.print_test_result(0, error=e)
-        return
-
-    fft.forward(in_data, out_data)
-    fft.backward(out_data, back_data)
-
-    diff = cp.max(cp.abs(in_data - back_data)).item()
-    test_utils.print_test_result(diff)
-
-def test_c2c_in_place(real_dtype_str, shape, ndim):
-    c_dtype_str = test_utils.get_c2c_dtype_str(real_dtype_str)
-    test_utils.print_test_start("[C2C In-Place ]", c_dtype_str)
-
-    _, complex_dtype = test_utils.get_cupy_types(real_dtype_str)
-    _, np_complex = test_utils.get_numpy_types(real_dtype_str)
-
-    clean_input_host = test_utils.generate_data(shape, np_complex)
-    clean_input = cp.asarray(clean_input_host)
-
-    data_buffer = cp.copy(clean_input)
-
-    try:
-        fft = FFT(ndim, shape, input=data_buffer, output=data_buffer, dtype=c_dtype_str, backend=BACKEND)
-    except Exception as e:
-        test_utils.print_test_result(0, error=e)
-        return
-
-    fft.forward(data_buffer, data_buffer)
-    fft.backward(data_buffer, data_buffer)
-
-    diff = cp.max(cp.abs(clean_input - data_buffer)).item()
-    test_utils.print_test_result(diff)
-
-def main():
-    test_utils.print_header(BACKEND)
+def test_legacy_suite():
+    print(f"\n{'='*60}\n  HARDCODED \n{'='*60}")
     precisions = ["float64", "float32"]
-    configurations = [(2, [1024, 1024]), (3, [128, 128, 128])]
+
+    configurations = [
+        (1, [2048]),
+        (2, [1024, 1024]),
+        (3, [64, 64, 64])
+    ]
 
     for ndim, shape in configurations:
         test_utils.print_config(ndim, shape)
         for dtype in precisions:
-            print(f"Precision: {dtype}")
-            test_r2c_out_of_place(dtype, shape, ndim)
-            test_r2c_in_place(dtype, shape, ndim)
-            test_c2c_out_of_place(dtype, shape, ndim)
-            test_c2c_in_place(dtype, shape, ndim)
-            print("")
-    print("Tests Completed.")
+            run_cufft_test("HC", shape, dtype, axes=None, ndim=ndim, is_r2c=False, is_inplace=False)
+            run_cufft_test("HC", shape, dtype, axes=None, ndim=ndim, is_r2c=False, is_inplace=True)
+            run_cufft_test("HC", shape, dtype, axes=None, ndim=ndim, is_r2c=True,  is_inplace=False)
+            run_cufft_test("HC", shape, dtype, axes=None, ndim=ndim, is_r2c=True,  is_inplace=True)
+
+def test_generic_suite():
+    print(f"\n{'='*60}\n  GENERIC \n{'='*60}")
+    precisions = ["float64", "float32"]
+
+    scenarios = [
+        { "shape": [1024], "axes": [0], "desc": "1D Full" },
+        { "shape": [128, 64], "axes": [0],    "desc": "2D Axis 0 (Strided)" },
+        { "shape": [128, 64], "axes": [1],    "desc": "2D Axis 1 (Contiguous)" },
+        { "shape": [128, 64], "axes": [0, 1], "desc": "2D Full" },
+        { "shape": [16, 32, 32], "axes": [0, 1, 2], "desc": "3D Full" },
+        { "shape": [4, 8, 32, 32], "axes": [2, 3],       "desc": "4D Spatial" },
+        { "shape": [4, 8, 32, 32], "axes": [0, 1, 2, 3], "desc": "4D Full" },
+    ]
+
+    for sc in scenarios:
+        print(f"\n--- {sc['desc']} ---")
+        for dtype in precisions:
+            run_cufft_test("Gen", sc["shape"], dtype, axes=sc["axes"], is_r2c=False, is_inplace=False)
+            run_cufft_test("Gen", sc["shape"], dtype, axes=sc["axes"], is_r2c=False, is_inplace=True)
+            run_cufft_test("Gen", sc["shape"], dtype, axes=sc["axes"], is_r2c=True, is_inplace=False)
+
+            if (len(sc["shape"])-1) in sc["axes"]:
+                run_cufft_test("Gen", sc["shape"], dtype, axes=sc["axes"], is_r2c=True, is_inplace=True)
+
+def main():
+    test_utils.print_header(BACKEND)
+
+    test_legacy_suite()
+    test_generic_suite()
+
+    print(f"\n{'='*60}")
+    print("TEST SUMMARY")
+    print(f"{'='*60}")
+    print(f"Total Tests: {TOTAL_TESTS}")
+    print(f"Passed:      {PASSED_TESTS}")
+    print(f"Failed:      {len(FAILED_TESTS)}")
+
+    if FAILED_TESTS:
+        print(f"\n[FAILED TESTS LIST]")
+        for fail_msg in FAILED_TESTS:
+            print(f"  - {fail_msg}")
+        print(f"{'='*60}\n")
+        sys.exit(1)
+    else:
+        print("\nALL TESTS PASSED.")
+        print(f"{'='*60}\n")
 
 if __name__ == "__main__":
     main()

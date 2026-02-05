@@ -1,5 +1,5 @@
 #pragma once
-#include "../includes/fft_base.hpp"
+#include "fft_base.hpp"
 #include <fftw3.h>
 #include <cstring>
 
@@ -10,6 +10,7 @@ private:
 public:
     FFTW_SERIAL(int ndim,
                 const std::vector<int>& shape,
+                const std::vector<int>& axes,
                 py::array dummy_real_in,
                 py::array dummy_complex_out,
                 const std::string& dtype);

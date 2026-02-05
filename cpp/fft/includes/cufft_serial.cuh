@@ -1,5 +1,5 @@
 #pragma once
-#include "../includes/fft_base.hpp"
+#include "fft_base.hpp"
 #include <cufft.h>
 #include <cuda_runtime.h>
 
@@ -8,7 +8,10 @@ private:
     std::unique_ptr<FFTBase> impl_;
 
 public:
-    CUFFT_SERIAL(int ndim, const std::vector<int>& shape, const std::string& dtype);
+    CUFFT_SERIAL(int ndim,
+                 const std::vector<int>& shape,
+                 const std::vector<int>& axes,
+                 const std::string& dtype);
 
     void forward(py::object in, py::object out) override;
     void backward(py::object in, py::object out) override;

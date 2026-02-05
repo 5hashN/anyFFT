@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2] - 2026-02-05
+
+- support for transforms along specified axes for serial modules
+- restructuring for headers
+- updated `README.md` for showing current support and usage samples
+- moved `.o` file generation out of `cpp`
+
 ## [0.1.1] - 2026-01-29
 
 - preliminary support for parallel mpi modules

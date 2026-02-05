@@ -4,7 +4,7 @@ _HAS_CUDA = False
 _HAS_CUDA_MPI = False
 
 try:
-    from .anyFFT import fftw
+    from .anyFFT import fftw, fftw_guru
     _HAS_FFTW = True
 except ImportError:
     pass  # FFTW Serial backend not compiled
@@ -16,7 +16,7 @@ except ImportError:
     pass  # FFTW MPI backend not compiled
 
 try:
-    from .anyFFT import cufft
+    from .anyFFT import cufft, cufft_generic
     _HAS_CUDA = True
 except ImportError:
     pass  # CUDA backend not compiled
@@ -29,9 +29,9 @@ except ImportError:
 
 # Define Exports
 __all__ = ["FFT"]
-if _HAS_FFTW: __all__.append("fftw")
+if _HAS_FFTW: __all__.extend(["fftw", "fftw_guru"])
 if _HAS_FFTW_MPI: __all__.append("fftw_mpi")
-if _HAS_CUDA: __all__.append("cufft")
+if _HAS_CUDA: __all__.extend(["cufft", "cufft_axes"])
 if _HAS_CUDA_MPI: __all__.append("cufft_mpi")
 
 def has_backend(backend_name):
@@ -51,13 +51,14 @@ def has_backend(backend_name):
     return False
 
 # Factory function
-def FFT(ndim, shape, input=None, output=None, comm=None, dtype="float64", backend="fftw"):
+def FFT(ndim=None, shape=None, axes=None, input=None, output=None, comm=None, dtype="float64", backend="fftw"):
     """
     Factory function to create an FFT backend instance.
 
     Args:
         ndim (int): Number of dimensions (e.g., 2 or 3).
         shape (list/tuple): Dimensions of the transform.
+        axes (list/tuple, optional): Specific axes to transform. If provided, 'ndim' is ignored.
         input (array, optional): Input array (Required for FFTW planning).
         output (array, optional): Output array (Required for FFTW planning).
         comm (mpi4py.MPI.Comm, optional): MPI Communicator (Required for MPI backends).
@@ -74,6 +75,12 @@ def FFT(ndim, shape, input=None, output=None, comm=None, dtype="float64", backen
 
         if input is None or output is None:
             raise ValueError("FFTW backend requires 'input' and 'output' dummy arrays to create a plan.")
+
+        if axes is not None:
+            return fftw_guru(shape, axes, input, output, dtype)
+
+        if ndim is None:
+            raise ValueError("Must provide either 'axes' or 'ndim'.")
 
         return fftw(ndim, shape, input, output, dtype)
 
@@ -92,15 +99,20 @@ def FFT(ndim, shape, input=None, output=None, comm=None, dtype="float64", backen
         if hasattr(comm, "py2f"):
             comm_handle = comm.py2f()
 
-        # Ensure comm is an integer
         if not isinstance(comm_handle, int):
-             raise TypeError("Communicator must be an mpi4py communicator or an integer handle.")
+            raise TypeError("Communicator must be an mpi4py communicator or an integer handle.")
 
         return fftw_mpi(ndim, shape, input, output, comm_handle, dtype)
 
     elif backend == "cufft":
         if not _HAS_CUDA:
             raise RuntimeError("The 'cufft' backend was requested, but anyFFT was compiled without CUDA support.")
+
+        if axes is not None:
+            return cufft_generic(shape, axes, dtype)
+
+        if ndim is None:
+            raise ValueError("Must provide either 'axes' or 'ndim'.")
 
         return cufft(ndim, shape, dtype)
 
@@ -111,14 +123,12 @@ def FFT(ndim, shape, input=None, output=None, comm=None, dtype="float64", backen
         if comm is None:
             raise ValueError("CuFFT MPI backend requires 'comm' (an mpi4py communicator).")
 
-        # Handle mpi4py object -> Fortran Integer Handle conversion
         comm_handle = comm
         if hasattr(comm, "py2f"):
             comm_handle = comm.py2f()
 
-        # Ensure comm is an integer
         if not isinstance(comm_handle, int):
-             raise TypeError("Communicator must be an mpi4py communicator or an integer handle.")
+            raise TypeError("Communicator must be an mpi4py communicator or an integer handle.")
 
         return cufft_mpi(ndim, shape, input, output, comm_handle, dtype)
 

@@ -10,115 +10,185 @@ except ImportError:
 
 BACKEND = "fftw"
 
-def test_r2c_out_of_place(dtype_str, shape, ndim):
-    test_utils.print_test_start("[R2C Out-Place]", dtype_str)
+FAILED_TESTS = []
+TOTAL_TESTS = 0
+PASSED_TESTS = 0
+
+def setup_r2c_inplace_buffer(shape, dtype_str, axes=None):
+    """
+    Helper to create a padded buffer for In-Place R2C transforms.
+    """
     real_dtype, complex_dtype = test_utils.get_numpy_types(dtype_str)
 
-    shape_f = list(shape)
-    shape_f[-1] = shape_f[-1] // 2 + 1
+    complex_shape = list(shape)
+    target_axis = axes[-1] if axes else -1
+    complex_shape[target_axis] = complex_shape[target_axis] // 2 + 1
 
-    dummy_real = np.empty(shape, dtype=real_dtype)
-    dummy_complex = np.empty(shape_f, dtype=complex_dtype)
+    buffer_complex = np.zeros(complex_shape, dtype=complex_dtype)
+    buffer_real_view = buffer_complex.view(real_dtype)
 
-    try:
-        fft = FFT(ndim, shape, input=dummy_real, output=dummy_complex, dtype=dtype_str, backend=BACKEND)
-    except Exception as e:
-        test_utils.print_test_result(0, error=e)
-        return
+    slices = [slice(None)] * len(shape)
+    slices[target_axis] = slice(0, shape[target_axis])
+    input_real_slice = buffer_real_view[tuple(slices)]
 
-    real_in = test_utils.generate_data(shape, real_dtype)
-    complex_out = np.empty(shape_f, dtype=complex_dtype)
-    real_back = np.empty(shape, dtype=real_dtype)
+    return buffer_complex, input_real_slice
 
-    fft.forward(real_in, complex_out)
-    fft.backward(complex_out, real_back)
+def run_fft_test(label, shape, dtype_str, axes=None, ndim=None, is_r2c=False, is_inplace=False):
+    """
+    Unified test runner. Records failures to global list.
+    """
+    global TOTAL_TESTS, PASSED_TESTS
+    TOTAL_TESTS += 1
 
-    diff = np.max(np.abs(real_in - real_back))
-    test_utils.print_test_result(diff)
+    if is_r2c:
+        test_type = "R2C"
+        full_dtype_str = dtype_str
+        real_dtype, complex_dtype = test_utils.get_numpy_types(dtype_str)
+    else:
+        test_type = "C2C"
+        full_dtype_str = test_utils.get_c2c_dtype_str(dtype_str)
+        _, complex_dtype = test_utils.get_numpy_types(dtype_str)
 
-def test_r2c_in_place(dtype_str, shape, ndim):
-    test_utils.print_test_start("[R2C In-Place ]", dtype_str)
-    real_dtype, complex_dtype = test_utils.get_numpy_types(dtype_str)
+    place_str = "In-Place" if is_inplace else "Out-Place"
+    config_str = f"axes={axes}" if axes else f"ndim={ndim}"
 
-    shape_f = list(shape)
-    shape_f[-1] = shape_f[-1] // 2 + 1
+    test_id = f"{label} {test_type} {place_str} | {config_str} | {shape} | {dtype_str}"
 
-    data_buffer = np.zeros(shape_f, dtype=complex_dtype)
-    real_view = data_buffer.view(real_dtype)
-
-    valid_n = shape[-1]
-    clean_input = test_utils.generate_data(shape, real_dtype)
-    real_view[..., :valid_n] = clean_input
-
-    try:
-        fft = FFT(ndim, shape, input=data_buffer, output=data_buffer, dtype=dtype_str, backend=BACKEND)
-    except Exception as e:
-        test_utils.print_test_result(0, error=e)
-        return
-
-    fft.forward(data_buffer, data_buffer)
-    fft.backward(data_buffer, data_buffer)
-
-    result = real_view[..., :valid_n]
-    diff = np.max(np.abs(clean_input - result))
-    test_utils.print_test_result(diff)
-
-def test_c2c_out_of_place(real_dtype_str, shape, ndim):
-    c_dtype_str = test_utils.get_c2c_dtype_str(real_dtype_str)
-    test_utils.print_test_start("[C2C Out-Place]", c_dtype_str)
-    _, complex_dtype = test_utils.get_numpy_types(real_dtype_str)
-
-    in_data = test_utils.generate_data(shape, complex_dtype)
-    out_data = np.empty_like(in_data)
-    back_data = np.empty_like(in_data)
+    header_lbl = f"[{test_type} {place_str}] {config_str}"
+    test_utils.print_test_start(header_lbl, full_dtype_str)
 
     try:
-        fft = FFT(ndim, shape, input=in_data, output=out_data, dtype=c_dtype_str, backend=BACKEND)
+        if not is_r2c:
+            in_data = test_utils.generate_data(shape, complex_dtype)
+            if is_inplace:
+                in_buffer = np.copy(in_data)
+                out_buffer = in_buffer
+                copy_ref = np.copy(in_data)
+            else:
+                in_buffer = in_data
+                out_buffer = np.zeros_like(in_data)
+                copy_ref = in_data
+        else:
+            clean_real_input = test_utils.generate_data(shape, real_dtype)
+            if is_inplace:
+                buffer_complex, input_real_slice = setup_r2c_inplace_buffer(shape, dtype_str, axes)
+                np.copyto(input_real_slice, clean_real_input)
+                in_buffer = input_real_slice
+                out_buffer = buffer_complex
+                copy_ref = clean_real_input
+            else:
+                out_shape = list(shape)
+                target_ax = axes[-1] if axes else -1
+                out_shape[target_ax] = out_shape[target_ax] // 2 + 1
+                in_buffer = clean_real_input
+                out_buffer = np.zeros(out_shape, dtype=complex_dtype)
+                copy_ref = clean_real_input
+
+        fft = FFT(ndim=ndim, shape=shape, axes=axes,
+                  input=in_buffer, output=out_buffer,
+                  dtype=full_dtype_str, backend=BACKEND)
+
+        fft.forward(in_buffer, out_buffer)
+
+        if is_r2c:
+            if is_inplace:
+                fft.backward(out_buffer, in_buffer)
+                result_data = in_buffer
+            else:
+                back_buffer = np.zeros_like(in_buffer)
+                fft.backward(out_buffer, back_buffer)
+                result_data = back_buffer
+        else:
+            if is_inplace:
+                fft.backward(out_buffer, out_buffer)
+                result_data = out_buffer
+            else:
+                back_buffer = np.zeros_like(in_buffer)
+                fft.backward(out_buffer, back_buffer)
+                result_data = back_buffer
+
+        diff = np.max(np.abs(copy_ref - result_data))
+
+        tol = 1e-4 if "float32" in dtype_str or "complex64" in dtype_str else 1e-12
+
+        if diff < tol:
+            test_utils.print_test_result(diff, tol=tol)
+            PASSED_TESTS += 1
+            return True
+        else:
+            test_utils.print_test_result(diff, tol=tol)
+            FAILED_TESTS.append(f"{test_id} -> Failed (Diff: {diff:.2e} > {tol})")
+            return False
+
     except Exception as e:
         test_utils.print_test_result(0, error=e)
-        return
+        FAILED_TESTS.append(f"{test_id} -> Error: {str(e)}")
+        return False
 
-    fft.forward(in_data, out_data)
-    fft.backward(out_data, back_data)
-
-    diff = np.max(np.abs(in_data - back_data))
-    test_utils.print_test_result(diff)
-
-def test_c2c_in_place(real_dtype_str, shape, ndim):
-    c_dtype_str = test_utils.get_c2c_dtype_str(real_dtype_str)
-    test_utils.print_test_start("[C2C In-Place ]", c_dtype_str)
-    _, complex_dtype = test_utils.get_numpy_types(real_dtype_str)
-
-    clean_input = test_utils.generate_data(shape, complex_dtype)
-    data_buffer = np.copy(clean_input)
-
-    try:
-        fft = FFT(ndim, shape, input=data_buffer, output=data_buffer, dtype=c_dtype_str, backend=BACKEND)
-    except Exception as e:
-        test_utils.print_test_result(0, error=e)
-        return
-
-    fft.forward(data_buffer, data_buffer)
-    fft.backward(data_buffer, data_buffer)
-
-    diff = np.max(np.abs(clean_input - data_buffer))
-    test_utils.print_test_result(diff)
-
-def main():
-    test_utils.print_header(BACKEND)
+def test_legacy_suite():
+    print(f"\n{'='*60}\n  HARDCODED \n{'='*60}")
     precisions = ["float64", "float32"]
-    configurations = [(2, [1024, 1024]), (3, [128, 128, 128])]
+
+    configurations = [
+        (1, [2048]),
+        (2, [1024, 1024]),
+        (3, [64, 64, 64])
+    ]
 
     for ndim, shape in configurations:
         test_utils.print_config(ndim, shape)
         for dtype in precisions:
-            print(f"Precision: {dtype}")
-            test_r2c_out_of_place(dtype, shape, ndim)
-            test_r2c_in_place(dtype, shape, ndim)
-            test_c2c_out_of_place(dtype, shape, ndim)
-            test_c2c_in_place(dtype, shape, ndim)
-            print("")
-    print("Tests Completed.")
+            run_fft_test("HC", shape, dtype, axes=None, ndim=ndim, is_r2c=False, is_inplace=False)
+            run_fft_test("HC", shape, dtype, axes=None, ndim=ndim, is_r2c=False, is_inplace=True)
+            run_fft_test("HC", shape, dtype, axes=None, ndim=ndim, is_r2c=True,  is_inplace=False)
+            run_fft_test("HC", shape, dtype, axes=None, ndim=ndim, is_r2c=True,  is_inplace=True)
+
+def test_generic_suite():
+    print(f"\n{'='*60}\n  GENERIC \n{'='*60}")
+    precisions = ["float64", "float32"]
+
+    scenarios = [
+        { "shape": [1024], "axes": [0], "desc": "1D Full" },
+        { "shape": [128, 64], "axes": [0],    "desc": "2D Axis 0 (Strided)" },
+        { "shape": [128, 64], "axes": [1],    "desc": "2D Axis 1 (Contiguous)" },
+        { "shape": [128, 64], "axes": [0, 1], "desc": "2D Full" },
+        { "shape": [16, 32, 32], "axes": [0, 1, 2], "desc": "3D Full" },
+        { "shape": [4, 8, 32, 32], "axes": [2, 3],       "desc": "4D Spatial" },
+        { "shape": [4, 8, 32, 32], "axes": [0, 1, 2, 3], "desc": "4D Full" },
+    ]
+
+    for sc in scenarios:
+        print(f"\n--- {sc['desc']} ---")
+        for dtype in precisions:
+            run_fft_test("Gen", sc["shape"], dtype, axes=sc["axes"], is_r2c=False, is_inplace=False)
+            run_fft_test("Gen", sc["shape"], dtype, axes=sc["axes"], is_r2c=False, is_inplace=True)
+            run_fft_test("Gen", sc["shape"], dtype, axes=sc["axes"], is_r2c=True, is_inplace=False)
+
+            if (len(sc["shape"])-1) in sc["axes"]:
+                run_fft_test("Gen", sc["shape"], dtype, axes=sc["axes"], is_r2c=True, is_inplace=True)
+
+def main():
+    test_utils.print_header(BACKEND)
+
+    test_legacy_suite()
+    test_generic_suite()
+
+    print(f"\n{'='*60}")
+    print("TEST SUMMARY")
+    print(f"{'='*60}")
+    print(f"Total Tests: {TOTAL_TESTS}")
+    print(f"Passed:      {PASSED_TESTS}")
+    print(f"Failed:      {len(FAILED_TESTS)}")
+
+    if FAILED_TESTS:
+        print(f"\n[FAILED TESTS LIST]")
+        for fail_msg in FAILED_TESTS:
+            print(f"  - {fail_msg}")
+        print(f"{'='*60}\n")
+        sys.exit(1)
+    else:
+        print("\nALL TESTS PASSED.")
+        print(f"{'='*60}\n")
 
 if __name__ == "__main__":
     main()

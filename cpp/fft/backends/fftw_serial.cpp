@@ -1,279 +1,375 @@
-#include "fftw_serial.hpp"
+#include "../includes/fftw_serial.hpp"
 
-// C2C
 class FFTW_C2C : public FFTBase {
-    std::vector<int> shape_;
-    int ndim_;
-    ssize_t N_;
-    std::string dtype_;
-    void* plan_forward_;
-    void* plan_backward_;
+    std::vector<int> shape_; int ndim_; ssize_t N_; std::string dtype_;
+    void* plan_forward_; void* plan_backward_;
 
 public:
-    FFTW_C2C(int ndim, const std::vector<int>& shape,
-             py::array in_arr, py::array out_arr, std::string dtype)
-        : shape_(shape), ndim_(ndim), N_(1), dtype_(dtype),
-          plan_forward_(nullptr), plan_backward_(nullptr)
+    FFTW_C2C(int ndim, const std::vector<int>& shape, py::array in, py::array out, std::string dtype)
+        : shape_(shape), ndim_(ndim), N_(1), dtype_(dtype), plan_forward_(nullptr), plan_backward_(nullptr)
     {
         for (int i : shape_) N_ *= i;
-
-        void* in_ptr = in_arr.mutable_data();
-        void* out_ptr = out_arr.mutable_data();
-
-        // Complex128
-        if (dtype_ == "complex128") {
-            fftw_complex* i_p = reinterpret_cast<fftw_complex*>(in_ptr);
-            fftw_complex* o_p = reinterpret_cast<fftw_complex*>(out_ptr);
-
-            if (ndim_ == 1) {
-                plan_forward_ = fftw_plan_dft_1d(shape_[0], i_p, o_p, FFTW_FORWARD, FFTW_ESTIMATE);
-                plan_backward_ = fftw_plan_dft_1d(shape_[0], i_p, o_p, FFTW_BACKWARD, FFTW_ESTIMATE);
-            } else if (ndim_ == 2) {
-                plan_forward_ = fftw_plan_dft_2d(shape_[0], shape_[1], i_p, o_p, FFTW_FORWARD, FFTW_ESTIMATE);
-                plan_backward_ = fftw_plan_dft_2d(shape_[0], shape_[1], i_p, o_p, FFTW_BACKWARD, FFTW_ESTIMATE);
-            } else if (ndim_ == 3) {
-                plan_forward_ = fftw_plan_dft_3d(shape_[0], shape_[1], shape_[2], i_p, o_p, FFTW_FORWARD, FFTW_ESTIMATE);
-                plan_backward_ = fftw_plan_dft_3d(shape_[0], shape_[1], shape_[2], i_p, o_p, FFTW_BACKWARD, FFTW_ESTIMATE);
-            }
-        }
-        // Complex64
-        else if (dtype_ == "complex64") {
-            fftwf_complex* i_p = reinterpret_cast<fftwf_complex*>(in_ptr);
-            fftwf_complex* o_p = reinterpret_cast<fftwf_complex*>(out_ptr);
-
-            if (ndim_ == 1) {
-                plan_forward_ = fftwf_plan_dft_1d(shape_[0], i_p, o_p, FFTW_FORWARD, FFTW_ESTIMATE);
-                plan_backward_ = fftwf_plan_dft_1d(shape_[0], i_p, o_p, FFTW_BACKWARD, FFTW_ESTIMATE);
-            } else if (ndim_ == 2) {
-                plan_forward_ = fftwf_plan_dft_2d(shape_[0], shape_[1], i_p, o_p, FFTW_FORWARD, FFTW_ESTIMATE);
-                plan_backward_ = fftwf_plan_dft_2d(shape_[0], shape_[1], i_p, o_p, FFTW_BACKWARD, FFTW_ESTIMATE);
-            } else if (ndim_ == 3) {
-                plan_forward_ = fftwf_plan_dft_3d(shape_[0], shape_[1], shape_[2], i_p, o_p, FFTW_FORWARD, FFTW_ESTIMATE);
-                plan_backward_ = fftwf_plan_dft_3d(shape_[0], shape_[1], shape_[2], i_p, o_p, FFTW_BACKWARD, FFTW_ESTIMATE);
-            }
-        }
-    }
-
-    void forward(py::object in_obj, py::object out_obj) override {
-        py::array in = in_obj.cast<py::array>();
-        py::array out = out_obj.cast<py::array>();
+        void* i_p = in.mutable_data(); void* o_p = out.mutable_data();
 
         if (dtype_ == "complex128") {
-            fftw_execute_dft((fftw_plan)plan_forward_,
-                             (fftw_complex*)in.mutable_data(),
-                             (fftw_complex*)out.mutable_data());
+            if (ndim_ == 1) {
+                plan_forward_ = fftw_plan_dft_1d(shape_[0], (fftw_complex*)i_p, (fftw_complex*)o_p, FFTW_FORWARD, FFTW_ESTIMATE);
+                plan_backward_ = fftw_plan_dft_1d(shape_[0], (fftw_complex*)i_p, (fftw_complex*)o_p, FFTW_BACKWARD, FFTW_ESTIMATE);
+            } else if (ndim_ == 2) {
+                plan_forward_ = fftw_plan_dft_2d(shape_[0], shape_[1], (fftw_complex*)i_p, (fftw_complex*)o_p, FFTW_FORWARD, FFTW_ESTIMATE);
+                plan_backward_ = fftw_plan_dft_2d(shape_[0], shape_[1], (fftw_complex*)i_p, (fftw_complex*)o_p, FFTW_BACKWARD, FFTW_ESTIMATE);
+            } else if (ndim_ == 3) {
+                plan_forward_ = fftw_plan_dft_3d(shape_[0], shape_[1], shape_[2], (fftw_complex*)i_p, (fftw_complex*)o_p, FFTW_FORWARD, FFTW_ESTIMATE);
+                plan_backward_ = fftw_plan_dft_3d(shape_[0], shape_[1], shape_[2], (fftw_complex*)i_p, (fftw_complex*)o_p, FFTW_BACKWARD, FFTW_ESTIMATE);
+            }
         } else {
-            fftwf_execute_dft((fftwf_plan)plan_forward_,
-                              (fftwf_complex*)in.mutable_data(),
-                              (fftwf_complex*)out.mutable_data());
+            if (ndim_ == 1) {
+                plan_forward_ = fftwf_plan_dft_1d(shape_[0], (fftwf_complex*)i_p, (fftwf_complex*)o_p, FFTW_FORWARD, FFTW_ESTIMATE);
+                plan_backward_ = fftwf_plan_dft_1d(shape_[0], (fftwf_complex*)i_p, (fftwf_complex*)o_p, FFTW_BACKWARD, FFTW_ESTIMATE);
+            } else if (ndim_ == 2) {
+                plan_forward_ = fftwf_plan_dft_2d(shape_[0], shape_[1], (fftwf_complex*)i_p, (fftwf_complex*)o_p, FFTW_FORWARD, FFTW_ESTIMATE);
+                plan_backward_ = fftwf_plan_dft_2d(shape_[0], shape_[1], (fftwf_complex*)i_p, (fftwf_complex*)o_p, FFTW_BACKWARD, FFTW_ESTIMATE);
+            } else if (ndim_ == 3) {
+                plan_forward_ = fftwf_plan_dft_3d(shape_[0], shape_[1], shape_[2], (fftwf_complex*)i_p, (fftwf_complex*)o_p, FFTW_FORWARD, FFTW_ESTIMATE);
+                plan_backward_ = fftwf_plan_dft_3d(shape_[0], shape_[1], shape_[2], (fftwf_complex*)i_p, (fftwf_complex*)o_p, FFTW_BACKWARD, FFTW_ESTIMATE);
+            }
         }
     }
 
-    void backward(py::object in_obj, py::object out_obj) override {
-        py::array in = in_obj.cast<py::array>();
-        py::array out = out_obj.cast<py::array>();
-
+    void forward(py::object in, py::object out) override {
         if (dtype_ == "complex128") {
-            fftw_execute_dft((fftw_plan)plan_backward_,
-                             (fftw_complex*)in.mutable_data(),
-                             (fftw_complex*)out.mutable_data());
-
-            // Normalize (Complex has 2 doubles per element, so we iterate over 2*size)
-            double* buf = (double*)out.mutable_data();
-            ssize_t total = out.size() * 2;
-            for(ssize_t i=0; i < total; ++i) buf[i] /= N_;
+            fftw_execute_dft((fftw_plan)plan_forward_, (fftw_complex*)in.cast<py::array>().mutable_data(), (fftw_complex*)out.cast<py::array>().mutable_data());
+        } else {
+            fftwf_execute_dft((fftwf_plan)plan_forward_, (fftwf_complex*)in.cast<py::array>().mutable_data(), (fftwf_complex*)out.cast<py::array>().mutable_data());
         }
-        else {
-            fftwf_execute_dft((fftwf_plan)plan_backward_,
-                              (fftwf_complex*)in.mutable_data(),
-                              (fftwf_complex*)out.mutable_data());
+    }
 
-            float* buf = (float*)out.mutable_data();
-            ssize_t total = out.size() * 2;
-            for(ssize_t i=0; i < total; ++i) buf[i] /= N_;
+    void backward(py::object in, py::object out) override {
+        py::array o_arr = out.cast<py::array>();
+        if (dtype_ == "complex128") {
+            fftw_execute_dft((fftw_plan)plan_backward_, (fftw_complex*)in.cast<py::array>().mutable_data(), (fftw_complex*)o_arr.mutable_data());
+        } else {
+            fftwf_execute_dft((fftwf_plan)plan_backward_, (fftwf_complex*)in.cast<py::array>().mutable_data(), (fftwf_complex*)o_arr.mutable_data());
         }
+
+        scale_array(o_arr, 1.0/N_);
     }
 
     ~FFTW_C2C() {
-        if (dtype_ == "complex128") {
-            if (plan_forward_) fftw_destroy_plan((fftw_plan)plan_forward_);
-            if (plan_backward_) fftw_destroy_plan((fftw_plan)plan_backward_);
+        if(dtype_ == "complex128") {
+            if(plan_forward_) fftw_destroy_plan((fftw_plan)plan_forward_);
+            if(plan_backward_) fftw_destroy_plan((fftw_plan)plan_backward_);
         } else {
-            if (plan_forward_) fftwf_destroy_plan((fftwf_plan)plan_forward_);
-            if (plan_backward_) fftwf_destroy_plan((fftwf_plan)plan_backward_);
+            if(plan_forward_) fftwf_destroy_plan((fftwf_plan)plan_forward_);
+            if(plan_backward_) fftwf_destroy_plan((fftwf_plan)plan_backward_);
         }
     }
 };
 
-// R2C Out-of-Place
 class FFTW_R2C_OutPlace : public FFTBase {
-    std::vector<int> shape_;
-    int ndim_;
-    ssize_t N_;
-    std::string dtype_;
-    void* plan_r2c_;
-    void* plan_c2r_;
-
+    std::vector<int> shape_; int ndim_; ssize_t N_; std::string dtype_;
+    void* plan_r2c_; void* plan_c2r_;
 public:
-    FFTW_R2C_OutPlace(int ndim, const std::vector<int>& shape,
-                  py::array real_in, py::array complex_out, std::string dtype)
+    FFTW_R2C_OutPlace(int ndim, const std::vector<int>& shape, py::array r, py::array c, std::string dtype)
         : shape_(shape), ndim_(ndim), N_(1), dtype_(dtype), plan_r2c_(nullptr), plan_c2r_(nullptr)
     {
-        for (int i : shape_) N_ *= i;
-
+        for(int i:shape_) N_*=i;
+        void* rp = r.mutable_data(); void* cp = c.mutable_data();
         if (dtype_ == "float64") {
-            double* r_ptr = static_cast<double*>(real_in.mutable_data());
-            fftw_complex* c_ptr = reinterpret_cast<fftw_complex*>(complex_out.mutable_data());
-
-            if (ndim_ == 1) {
-                plan_r2c_ = fftw_plan_dft_r2c_1d(shape_[0], r_ptr, c_ptr, FFTW_ESTIMATE);
-                plan_c2r_ = fftw_plan_dft_c2r_1d(shape_[0], c_ptr, r_ptr, FFTW_ESTIMATE);
-            } else if (ndim_ == 2) {
-                plan_r2c_ = fftw_plan_dft_r2c_2d(shape_[0], shape_[1], r_ptr, c_ptr, FFTW_ESTIMATE);
-                plan_c2r_ = fftw_plan_dft_c2r_2d(shape_[0], shape_[1], c_ptr, r_ptr, FFTW_ESTIMATE);
-            } else if (ndim_ == 3) {
-                plan_r2c_ = fftw_plan_dft_r2c_3d(shape_[0], shape_[1], shape_[2], r_ptr, c_ptr, FFTW_ESTIMATE);
-                plan_c2r_ = fftw_plan_dft_c2r_3d(shape_[0], shape_[1], shape_[2], c_ptr, r_ptr, FFTW_ESTIMATE);
+            if (ndim_==1) {
+                plan_r2c_ = fftw_plan_dft_r2c_1d(shape_[0], (double*)rp, (fftw_complex*)cp, FFTW_ESTIMATE);
+                plan_c2r_ = fftw_plan_dft_c2r_1d(shape_[0], (fftw_complex*)cp, (double*)rp, FFTW_ESTIMATE);
+            } else if (ndim_==2) {
+                plan_r2c_ = fftw_plan_dft_r2c_2d(shape_[0],shape_[1], (double*)rp, (fftw_complex*)cp, FFTW_ESTIMATE);
+                plan_c2r_ = fftw_plan_dft_c2r_2d(shape_[0],shape_[1], (fftw_complex*)cp, (double*)rp, FFTW_ESTIMATE);
+            } else {
+                plan_r2c_ = fftw_plan_dft_r2c_3d(shape_[0],shape_[1],shape_[2], (double*)rp, (fftw_complex*)cp, FFTW_ESTIMATE);
+                plan_c2r_ = fftw_plan_dft_c2r_3d(shape_[0],shape_[1],shape_[2], (fftw_complex*)cp, (double*)rp, FFTW_ESTIMATE);
             }
-        }
-        else if (dtype_ == "float32") {
-            float* r_ptr = static_cast<float*>(real_in.mutable_data());
-            fftwf_complex* c_ptr = reinterpret_cast<fftwf_complex*>(complex_out.mutable_data());
-
-            if (ndim_ == 1) {
-                plan_r2c_ = fftwf_plan_dft_r2c_1d(shape_[0], r_ptr, c_ptr, FFTW_ESTIMATE);
-                plan_c2r_ = fftwf_plan_dft_c2r_1d(shape_[0], c_ptr, r_ptr, FFTW_ESTIMATE);
-            } else if (ndim_ == 2) {
-                plan_r2c_ = fftwf_plan_dft_r2c_2d(shape_[0], shape_[1], r_ptr, c_ptr, FFTW_ESTIMATE);
-                plan_c2r_ = fftwf_plan_dft_c2r_2d(shape_[0], shape_[1], c_ptr, r_ptr, FFTW_ESTIMATE);
-            } else if (ndim_ == 3) {
-                plan_r2c_ = fftwf_plan_dft_r2c_3d(shape_[0], shape_[1], shape_[2], r_ptr, c_ptr, FFTW_ESTIMATE);
-                plan_c2r_ = fftwf_plan_dft_c2r_3d(shape_[0], shape_[1], shape_[2], c_ptr, r_ptr, FFTW_ESTIMATE);
-            }
-        }
-    }
-
-    void forward(py::object in_obj, py::object out_obj) override {
-        py::array in = in_obj.cast<py::array>();
-        py::array out = out_obj.cast<py::array>();
-        if (dtype_ == "float64") fftw_execute_dft_r2c((fftw_plan)plan_r2c_, (double*)in.mutable_data(), (fftw_complex*)out.mutable_data());
-        else fftwf_execute_dft_r2c((fftwf_plan)plan_r2c_, (float*)in.mutable_data(), (fftwf_complex*)out.mutable_data());
-    }
-
-    void backward(py::object in_obj, py::object out_obj) override {
-        py::array in = in_obj.cast<py::array>();
-        py::array out = out_obj.cast<py::array>();
-        if (dtype_ == "float64") {
-            fftw_execute_dft_c2r((fftw_plan)plan_c2r_, (fftw_complex*)in.mutable_data(), (double*)out.mutable_data());
-            double* buf = (double*)out.mutable_data();
-            for(ssize_t i=0; i<out.size(); ++i) buf[i] /= N_;
         } else {
-            fftwf_execute_dft_c2r((fftwf_plan)plan_c2r_, (fftwf_complex*)in.mutable_data(), (float*)out.mutable_data());
-            float* buf = (float*)out.mutable_data();
-            for(ssize_t i=0; i<out.size(); ++i) buf[i] /= N_;
+            if (ndim_==1) {
+                plan_r2c_ = fftwf_plan_dft_r2c_1d(shape_[0], (float*)rp, (fftwf_complex*)cp, FFTW_ESTIMATE);
+                plan_c2r_ = fftwf_plan_dft_c2r_1d(shape_[0], (fftwf_complex*)cp, (float*)rp, FFTW_ESTIMATE);
+            } else if (ndim_==2) {
+                plan_r2c_ = fftwf_plan_dft_r2c_2d(shape_[0],shape_[1], (float*)rp, (fftwf_complex*)cp, FFTW_ESTIMATE);
+                plan_c2r_ = fftwf_plan_dft_c2r_2d(shape_[0],shape_[1], (fftwf_complex*)cp, (float*)rp, FFTW_ESTIMATE);
+            } else {
+                plan_r2c_ = fftwf_plan_dft_r2c_3d(shape_[0],shape_[1],shape_[2], (float*)rp, (fftwf_complex*)cp, FFTW_ESTIMATE);
+                plan_c2r_ = fftwf_plan_dft_c2r_3d(shape_[0],shape_[1],shape_[2], (fftwf_complex*)cp, (float*)rp, FFTW_ESTIMATE);
+            }
         }
+    }
+
+    void forward(py::object in, py::object out) override {
+        if(dtype_ == "float64") {
+            fftw_execute_dft_r2c((fftw_plan)plan_r2c_, (double*)in.cast<py::array>().mutable_data(), (fftw_complex*)out.cast<py::array>().mutable_data());
+        } else {
+            fftwf_execute_dft_r2c((fftwf_plan)plan_r2c_, (float*)in.cast<py::array>().mutable_data(), (fftwf_complex*)out.cast<py::array>().mutable_data());
+        }
+    }
+
+    void backward(py::object in, py::object out) override {
+        py::array o = out.cast<py::array>();
+        if(dtype_ == "float64") {
+            fftw_execute_dft_c2r((fftw_plan)plan_c2r_, (fftw_complex*)in.cast<py::array>().mutable_data(), (double*)o.mutable_data());
+        } else {
+            fftwf_execute_dft_c2r((fftwf_plan)plan_c2r_, (fftwf_complex*)in.cast<py::array>().mutable_data(), (float*)o.mutable_data());
+        }
+
+        scale_array(o, 1.0/N_);
     }
 
     ~FFTW_R2C_OutPlace() {
-        if (dtype_ == "float64") { if(plan_r2c_) fftw_destroy_plan((fftw_plan)plan_r2c_); if(plan_c2r_) fftw_destroy_plan((fftw_plan)plan_c2r_); }
-        else { if(plan_r2c_) fftwf_destroy_plan((fftwf_plan)plan_r2c_); if(plan_c2r_) fftwf_destroy_plan((fftwf_plan)plan_c2r_); }
+        if(dtype_ == "float64") {
+            if(plan_r2c_) fftw_destroy_plan((fftw_plan)plan_r2c_);
+            if(plan_c2r_) fftw_destroy_plan((fftw_plan)plan_c2r_);
+        } else {
+            if(plan_r2c_) fftwf_destroy_plan((fftwf_plan)plan_r2c_);
+            if(plan_c2r_) fftwf_destroy_plan((fftwf_plan)plan_c2r_);
+        }
     }
 };
 
-// R2C In-Place
 class FFTW_R2C_InPlace : public FFTBase {
-    std::vector<int> shape_;
-    int ndim_;
-    ssize_t N_;
-    std::string dtype_;
-    void* plan_r2c_;
-    void* plan_c2r_;
-
+    std::vector<int> shape_; int ndim_; ssize_t N_; std::string dtype_;
+    void* plan_r2c_; void* plan_c2r_;
 public:
     FFTW_R2C_InPlace(int ndim, const std::vector<int>& shape, py::array data, std::string dtype)
         : shape_(shape), ndim_(ndim), N_(1), dtype_(dtype), plan_r2c_(nullptr), plan_c2r_(nullptr)
     {
-         for (int i : shape_) N_ *= i;
-         void* ptr = data.mutable_data();
-
-         if (dtype_ == "float64") {
-            double* r_ptr = static_cast<double*>(ptr);
-            fftw_complex* c_ptr = reinterpret_cast<fftw_complex*>(ptr);
-
-            if (ndim_ == 1) {
-                plan_r2c_ = fftw_plan_dft_r2c_1d(shape_[0], r_ptr, c_ptr, FFTW_ESTIMATE);
-                plan_c2r_ = fftw_plan_dft_c2r_1d(shape_[0], c_ptr, r_ptr, FFTW_ESTIMATE);
-            } else if (ndim_ == 2) {
-                plan_r2c_ = fftw_plan_dft_r2c_2d(shape_[0], shape_[1], r_ptr, c_ptr, FFTW_ESTIMATE);
-                plan_c2r_ = fftw_plan_dft_c2r_2d(shape_[0], shape_[1], c_ptr, r_ptr, FFTW_ESTIMATE);
-            } else if (ndim_ == 3) {
-                plan_r2c_ = fftw_plan_dft_r2c_3d(shape_[0], shape_[1], shape_[2], r_ptr, c_ptr, FFTW_ESTIMATE);
-                plan_c2r_ = fftw_plan_dft_c2r_3d(shape_[0], shape_[1], shape_[2], c_ptr, r_ptr, FFTW_ESTIMATE);
-            }
-         }
-         else if (dtype_ == "float32") {
-            float* r_ptr = static_cast<float*>(ptr);
-            fftwf_complex* c_ptr = reinterpret_cast<fftwf_complex*>(ptr);
-
-            if (ndim_ == 1) {
-                plan_r2c_ = fftwf_plan_dft_r2c_1d(shape_[0], r_ptr, c_ptr, FFTW_ESTIMATE);
-                plan_c2r_ = fftwf_plan_dft_c2r_1d(shape_[0], c_ptr, r_ptr, FFTW_ESTIMATE);
-            } else if (ndim_ == 2) {
-                plan_r2c_ = fftwf_plan_dft_r2c_2d(shape_[0], shape_[1], r_ptr, c_ptr, FFTW_ESTIMATE);
-                plan_c2r_ = fftwf_plan_dft_c2r_2d(shape_[0], shape_[1], c_ptr, r_ptr, FFTW_ESTIMATE);
-            } else if (ndim_ == 3) {
-                plan_r2c_ = fftwf_plan_dft_r2c_3d(shape_[0], shape_[1], shape_[2], r_ptr, c_ptr, FFTW_ESTIMATE);
-                plan_c2r_ = fftwf_plan_dft_c2r_3d(shape_[0], shape_[1], shape_[2], c_ptr, r_ptr, FFTW_ESTIMATE);
-            }
-         }
-    }
-
-    void forward(py::object in, py::object out) override {
-        py::array arr = in.cast<py::array>();
-        void* ptr = arr.mutable_data();
-        if (dtype_ == "float64") fftw_execute_dft_r2c((fftw_plan)plan_r2c_, (double*)ptr, (fftw_complex*)ptr);
-        else fftwf_execute_dft_r2c((fftwf_plan)plan_r2c_, (float*)ptr, (fftwf_complex*)ptr);
-    }
-
-    void backward(py::object in, py::object out) override {
-        py::array arr = in.cast<py::array>();
-        void* ptr = arr.mutable_data();
-        ssize_t total_elements = arr.size();
-        if (arr.dtype().kind() == 'c') total_elements *= 2;
-
+        for(int i:shape_) N_*=i;
+        void* ptr = data.mutable_data();
         if (dtype_ == "float64") {
-            fftw_execute_dft_c2r((fftw_plan)plan_c2r_, (fftw_complex*)ptr, (double*)ptr);
-            double* buf = (double*)ptr;
-            for(ssize_t i=0; i < total_elements; ++i) buf[i] /= N_;
+            if (ndim_==1) {
+                plan_r2c_ = fftw_plan_dft_r2c_1d(shape_[0], (double*)ptr, (fftw_complex*)ptr, FFTW_ESTIMATE);
+                plan_c2r_ = fftw_plan_dft_c2r_1d(shape_[0], (fftw_complex*)ptr, (double*)ptr, FFTW_ESTIMATE);
+            } else if (ndim_==2) {
+                plan_r2c_ = fftw_plan_dft_r2c_2d(shape_[0],shape_[1], (double*)ptr, (fftw_complex*)ptr, FFTW_ESTIMATE);
+                plan_c2r_ = fftw_plan_dft_c2r_2d(shape_[0],shape_[1], (fftw_complex*)ptr, (double*)ptr, FFTW_ESTIMATE);
+            } else {
+                plan_r2c_ = fftw_plan_dft_r2c_3d(shape_[0],shape_[1],shape_[2], (double*)ptr, (fftw_complex*)ptr, FFTW_ESTIMATE);
+                plan_c2r_ = fftw_plan_dft_c2r_3d(shape_[0],shape_[1],shape_[2], (fftw_complex*)ptr, (double*)ptr, FFTW_ESTIMATE);
+            }
         } else {
-            fftwf_execute_dft_c2r((fftwf_plan)plan_c2r_, (fftwf_complex*)ptr, (float*)ptr);
-            float* buf = (float*)ptr;
-            for(ssize_t i=0; i < total_elements; ++i) buf[i] /= N_;
+            if (ndim_==1) {
+                plan_r2c_ = fftwf_plan_dft_r2c_1d(shape_[0], (float*)ptr, (fftwf_complex*)ptr, FFTW_ESTIMATE);
+                plan_c2r_ = fftwf_plan_dft_c2r_1d(shape_[0], (fftwf_complex*)ptr, (float*)ptr, FFTW_ESTIMATE);
+            } else if (ndim_==2) {
+                plan_r2c_ = fftwf_plan_dft_r2c_2d(shape_[0],shape_[1], (float*)ptr, (fftwf_complex*)ptr, FFTW_ESTIMATE);
+                plan_c2r_ = fftwf_plan_dft_c2r_2d(shape_[0],shape_[1], (fftwf_complex*)ptr, (float*)ptr, FFTW_ESTIMATE);
+            } else {
+                plan_r2c_ = fftwf_plan_dft_r2c_3d(shape_[0],shape_[1],shape_[2], (float*)ptr, (fftwf_complex*)ptr, FFTW_ESTIMATE);
+                plan_c2r_ = fftwf_plan_dft_c2r_3d(shape_[0],shape_[1],shape_[2], (fftwf_complex*)ptr, (float*)ptr, FFTW_ESTIMATE);
+            }
         }
     }
 
+    void forward(py::object in, py::object out) override {
+        void* p = in.cast<py::array>().mutable_data();
+        if(dtype_ == "float64") {
+            fftw_execute_dft_r2c((fftw_plan)plan_r2c_, (double*)p, (fftw_complex*)p);
+        } else {
+            fftwf_execute_dft_r2c((fftwf_plan)plan_r2c_, (float*)p, (fftwf_complex*)p);
+        }
+    }
+
+    void backward(py::object in, py::object out) override {
+        py::array o = out.cast<py::array>();
+        void* p = o.mutable_data();
+        if(dtype_ == "float64") {
+            fftw_execute_dft_c2r((fftw_plan)plan_c2r_, (fftw_complex*)p, (double*)p);
+        } else {
+            fftwf_execute_dft_c2r((fftwf_plan)plan_c2r_, (fftwf_complex*)p, (float*)p);
+        }
+
+        scale_array(o, 1.0/N_);
+    }
+
     ~FFTW_R2C_InPlace() {
-        if (dtype_ == "float64") { if(plan_r2c_) fftw_destroy_plan((fftw_plan)plan_r2c_); if(plan_c2r_) fftw_destroy_plan((fftw_plan)plan_c2r_); }
-        else { if(plan_r2c_) fftwf_destroy_plan((fftwf_plan)plan_r2c_); if(plan_c2r_) fftwf_destroy_plan((fftwf_plan)plan_c2r_); }
+        if(dtype_ == "float64") {
+            if(plan_r2c_) fftw_destroy_plan((fftw_plan)plan_r2c_);
+            if(plan_c2r_) fftw_destroy_plan((fftw_plan)plan_c2r_);
+        } else {
+            if(plan_r2c_) fftwf_destroy_plan((fftwf_plan)plan_r2c_);
+            if(plan_c2r_) fftwf_destroy_plan((fftwf_plan)plan_c2r_);
+        }
     }
 };
 
-// The Wrapper Constructor
+class FFTW_Guru_C2C : public FFTBase {
+    std::string dtype_;
+    void* plan_fwd_ = nullptr; void* plan_bwd_ = nullptr;
+    double scale_;
+
+public:
+    FFTW_Guru_C2C(const std::vector<int>& shape, const std::vector<int>& axes,
+                  py::array in, py::array out, std::string dtype)
+        : dtype_(dtype)
+    {
+        std::vector<int> s_in = get_array_strides(in);
+        std::vector<int> s_out = get_array_strides(out);
+        std::set<int> axes_set(axes.begin(), axes.end());
+
+        std::vector<fftw_iodim> dims, howmany_dims;
+        long long N = 1;
+
+        for(int ax : axes) {
+            fftw_iodim d; d.n = shape[ax]; d.is = s_in[ax]; d.os = s_out[ax];
+            dims.push_back(d); N *= shape[ax];
+        }
+        scale_ = 1.0 / (double)N;
+
+        for(size_t i=0; i<shape.size(); ++i) {
+            if(axes_set.find(i) == axes_set.end()) {
+                fftw_iodim d; d.n = shape[i]; d.is = s_in[i]; d.os = s_out[i];
+                howmany_dims.push_back(d);
+            }
+        }
+
+        void* ip = in.mutable_data(); void* op = out.mutable_data();
+        if(dtype_ == "complex128") {
+            plan_fwd_ = fftw_plan_guru_dft(dims.size(), dims.data(), howmany_dims.size(), howmany_dims.data(), (fftw_complex*)ip, (fftw_complex*)op, FFTW_FORWARD, FFTW_ESTIMATE);
+            plan_bwd_ = fftw_plan_guru_dft(dims.size(), dims.data(), howmany_dims.size(), howmany_dims.data(), (fftw_complex*)ip, (fftw_complex*)op, FFTW_BACKWARD, FFTW_ESTIMATE);
+        } else {
+            plan_fwd_ = fftwf_plan_guru_dft(dims.size(), (fftwf_iodim*)dims.data(), howmany_dims.size(), (fftwf_iodim*)howmany_dims.data(), (fftwf_complex*)ip, (fftwf_complex*)op, FFTW_FORWARD, FFTW_ESTIMATE);
+            plan_bwd_ = fftwf_plan_guru_dft(dims.size(), (fftwf_iodim*)dims.data(), howmany_dims.size(), (fftwf_iodim*)howmany_dims.data(), (fftwf_complex*)ip, (fftwf_complex*)op, FFTW_BACKWARD, FFTW_ESTIMATE);
+        }
+    }
+
+    void forward(py::object in, py::object out) override {
+        void* i = in.cast<py::array>().mutable_data(); void* o = out.cast<py::array>().mutable_data();
+        if(dtype_ == "complex128") {
+            fftw_execute_dft((fftw_plan)plan_fwd_, (fftw_complex*)i, (fftw_complex*)o);
+        } else {
+            fftwf_execute_dft((fftwf_plan)plan_fwd_, (fftwf_complex*)i, (fftwf_complex*)o);
+        }
+
+    }
+
+    void backward(py::object in, py::object out) override {
+        void* i = in.cast<py::array>().mutable_data();
+        py::array o_arr = out.cast<py::array>();
+        void* o = o_arr.mutable_data();
+
+        if(dtype_ == "complex128") {
+            fftw_execute_dft((fftw_plan)plan_bwd_, (fftw_complex*)i, (fftw_complex*)o);
+        } else {
+            fftwf_execute_dft((fftwf_plan)plan_bwd_, (fftwf_complex*)i, (fftwf_complex*)o);
+        }
+
+        scale_array(o_arr, scale_);
+    }
+
+    ~FFTW_Guru_C2C() {
+        if(dtype_ == "complex128") {
+            if(plan_fwd_) fftw_destroy_plan((fftw_plan)plan_fwd_);
+            if(plan_bwd_) fftw_destroy_plan((fftw_plan)plan_bwd_);
+        } else {
+            if(plan_fwd_) fftwf_destroy_plan((fftwf_plan)plan_fwd_);
+            if(plan_bwd_) fftwf_destroy_plan((fftwf_plan)plan_bwd_);
+        }
+    }
+};
+
+class FFTW_Guru_R2C : public FFTBase {
+    std::string dtype_;
+    void* plan_r2c_ = nullptr; void* plan_c2r_ = nullptr;
+    double scale_;
+
+public:
+    FFTW_Guru_R2C(const std::vector<int>& shape, const std::vector<int>& axes,
+                  py::array in, py::array out, std::string dtype)
+        : dtype_(dtype)
+    {
+        std::vector<int> s_in = get_array_strides(in);
+        std::vector<int> s_out = get_array_strides(out);
+        std::set<int> axes_set(axes.begin(), axes.end());
+
+        std::vector<fftw_iodim> df, db, hf, hb;
+        long long N = 1;
+
+        for(int ax : axes) {
+            fftw_iodim f, b;
+            f.n = shape[ax]; f.is = s_in[ax]; f.os = s_out[ax];
+            b.n = shape[ax]; b.is = s_out[ax]; b.os = s_in[ax]; // Swap Strides for BWD
+            df.push_back(f); db.push_back(b);
+            N *= shape[ax];
+        }
+        scale_ = 1.0 / (double)N;
+
+        for(size_t i=0; i<shape.size(); ++i) {
+            if(axes_set.find(i) == axes_set.end()) {
+                fftw_iodim f, b;
+                f.n = shape[i]; f.is = s_in[i]; f.os = s_out[i];
+                b.n = shape[i]; b.is = s_out[i]; b.os = s_in[i]; // Swap Strides for BWD
+                hf.push_back(f); hb.push_back(b);
+            }
+        }
+
+        void* rp = in.mutable_data(); void* cp = out.mutable_data();
+
+        if(dtype_ == "float64") {
+            plan_r2c_ = fftw_plan_guru_dft_r2c(df.size(), df.data(), hf.size(), hf.data(), (double*)rp, (fftw_complex*)cp, FFTW_ESTIMATE);
+            plan_c2r_ = fftw_plan_guru_dft_c2r(db.size(), db.data(), hb.size(), hb.data(), (fftw_complex*)cp, (double*)rp, FFTW_ESTIMATE);
+        } else {
+            plan_r2c_ = fftwf_plan_guru_dft_r2c(df.size(), (fftwf_iodim*)df.data(), hf.size(), (fftwf_iodim*)hf.data(), (float*)rp, (fftwf_complex*)cp, FFTW_ESTIMATE);
+            plan_c2r_ = fftwf_plan_guru_dft_c2r(db.size(), (fftwf_iodim*)db.data(), hb.size(), (fftwf_iodim*)hb.data(), (fftwf_complex*)cp, (float*)rp, FFTW_ESTIMATE);
+        }
+    }
+
+    void forward(py::object in, py::object out) override {
+        void* i = in.cast<py::array>().mutable_data(); void* o = out.cast<py::array>().mutable_data();
+        if(dtype_ == "float64") {
+            fftw_execute_dft_r2c((fftw_plan)plan_r2c_, (double*)i, (fftw_complex*)o);
+        } else {
+            fftwf_execute_dft_r2c((fftwf_plan)plan_r2c_, (float*)i, (fftwf_complex*)o);
+        }
+    }
+
+    void backward(py::object in, py::object out) override {
+        void* i = in.cast<py::array>().mutable_data();
+        py::array o_arr = out.cast<py::array>();
+        void* o = o_arr.mutable_data();
+
+        if(dtype_ == "float64") {
+            fftw_execute_dft_c2r((fftw_plan)plan_c2r_, (fftw_complex*)i, (double*)o);
+        } else {
+            fftwf_execute_dft_c2r((fftwf_plan)plan_c2r_, (fftwf_complex*)i, (float*)o);
+        }
+
+        scale_array(o_arr, scale_);
+    }
+
+    ~FFTW_Guru_R2C() {
+        if(dtype_ == "float64") {
+            if(plan_r2c_) fftw_destroy_plan((fftw_plan)plan_r2c_);
+            if(plan_c2r_) fftw_destroy_plan((fftw_plan)plan_c2r_);
+        } else {
+            if(plan_r2c_) fftwf_destroy_plan((fftwf_plan)plan_r2c_);
+            if(plan_c2r_) fftwf_destroy_plan((fftwf_plan)plan_c2r_);
+        }
+    }
+};
+
 FFTW_SERIAL::FFTW_SERIAL(int ndim, const std::vector<int>& shape,
+                         const std::vector<int>& axes,
                          py::array real_in, py::array complex_out,
                          const std::string& dtype)
 {
-    // Check for Complex-to-Complex (C2C)
-    if (dtype == "complex128" || dtype == "complex64") {
-        impl_ = std::make_unique<FFTW_C2C>(ndim, shape, real_in, complex_out, dtype);
-    }
-    // Check for Real-to-Complex In-Place
-    else if (real_in.ptr() == complex_out.ptr()) {
-        impl_ = std::make_unique<FFTW_R2C_InPlace>(ndim, shape, real_in, dtype);
-    }
-    // Default to Real-to-Complex Out-of-Place
-    else {
-        impl_ = std::make_unique<FFTW_R2C_OutPlace>(ndim, shape, real_in, complex_out, dtype);
+    if (!axes.empty()) {
+        if (dtype == "complex128" || dtype == "complex64") {
+            impl_ = std::make_unique<FFTW_Guru_C2C>(shape, axes, real_in, complex_out, dtype);
+        } else {
+            impl_ = std::make_unique<FFTW_Guru_R2C>(shape, axes, real_in, complex_out, dtype);
+        }
+    } else {
+        if (dtype == "complex128" || dtype == "complex64") {
+            impl_ = std::make_unique<FFTW_C2C>(ndim, shape, real_in, complex_out, dtype);
+        } else if (real_in.ptr() == complex_out.ptr()) {
+            impl_ = std::make_unique<FFTW_R2C_InPlace>(ndim, shape, real_in, dtype);
+        } else {
+            impl_ = std::make_unique<FFTW_R2C_OutPlace>(ndim, shape, real_in, complex_out, dtype);
+        }
     }
 }
 
