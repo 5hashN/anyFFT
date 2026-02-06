@@ -44,19 +44,30 @@ public:
     }
 
     void forward(py::object in, py::object out) override {
-        if (dtype_ == "complex128") {
-            fftw_execute_dft((fftw_plan)plan_forward_, (fftw_complex*)in.cast<py::array>().mutable_data(), (fftw_complex*)out.cast<py::array>().mutable_data());
-        } else {
-            fftwf_execute_dft((fftwf_plan)plan_forward_, (fftwf_complex*)in.cast<py::array>().mutable_data(), (fftwf_complex*)out.cast<py::array>().mutable_data());
+        py::array i_arr = in.cast<py::array>();
+        py::array o_arr = out.cast<py::array>();
+
+        void* i_ptr = i_arr.mutable_data();
+        void* o_ptr = o_arr.mutable_data();
+
+        {
+            py::gil_scoped_release release;
+            if (dtype_ == "complex128") fftw_execute_dft((fftw_plan)plan_forward_, (fftw_complex*)i_ptr, (fftw_complex*)o_ptr);
+            else fftwf_execute_dft((fftwf_plan)plan_forward_, (fftwf_complex*)i_ptr, (fftwf_complex*)o_ptr);
         }
     }
 
     void backward(py::object in, py::object out) override {
+        py::array i_arr = in.cast<py::array>();
         py::array o_arr = out.cast<py::array>();
-        if (dtype_ == "complex128") {
-            fftw_execute_dft((fftw_plan)plan_backward_, (fftw_complex*)in.cast<py::array>().mutable_data(), (fftw_complex*)o_arr.mutable_data());
-        } else {
-            fftwf_execute_dft((fftwf_plan)plan_backward_, (fftwf_complex*)in.cast<py::array>().mutable_data(), (fftwf_complex*)o_arr.mutable_data());
+
+        void* i_ptr = i_arr.mutable_data();
+        void* o_ptr = o_arr.mutable_data();
+
+        {
+            py::gil_scoped_release release;
+            if (dtype_ == "complex128") fftw_execute_dft((fftw_plan)plan_backward_, (fftw_complex*)i_ptr, (fftw_complex*)o_ptr);
+            else fftwf_execute_dft((fftwf_plan)plan_backward_, (fftwf_complex*)i_ptr, (fftwf_complex*)o_ptr);
         }
 
         scale_array(o_arr, 1.0/N_);
@@ -108,22 +119,33 @@ public:
     }
 
     void forward(py::object in, py::object out) override {
-        if(dtype_ == "float64") {
-            fftw_execute_dft_r2c((fftw_plan)plan_r2c_, (double*)in.cast<py::array>().mutable_data(), (fftw_complex*)out.cast<py::array>().mutable_data());
-        } else {
-            fftwf_execute_dft_r2c((fftwf_plan)plan_r2c_, (float*)in.cast<py::array>().mutable_data(), (fftwf_complex*)out.cast<py::array>().mutable_data());
+        py::array i_arr = in.cast<py::array>();
+        py::array o_arr = out.cast<py::array>();
+
+        void* i_ptr = i_arr.mutable_data();
+        void* o_ptr = o_arr.mutable_data();
+
+        {
+            py::gil_scoped_release release;
+            if(dtype_ == "float64") fftw_execute_dft_r2c((fftw_plan)plan_r2c_, (double*)i_ptr, (fftw_complex*)o_ptr);
+            else fftwf_execute_dft_r2c((fftwf_plan)plan_r2c_, (float*)i_ptr, (fftwf_complex*)o_ptr);
         }
     }
 
     void backward(py::object in, py::object out) override {
-        py::array o = out.cast<py::array>();
-        if(dtype_ == "float64") {
-            fftw_execute_dft_c2r((fftw_plan)plan_c2r_, (fftw_complex*)in.cast<py::array>().mutable_data(), (double*)o.mutable_data());
-        } else {
-            fftwf_execute_dft_c2r((fftwf_plan)plan_c2r_, (fftwf_complex*)in.cast<py::array>().mutable_data(), (float*)o.mutable_data());
+        py::array i_arr = in.cast<py::array>();
+        py::array o_arr = out.cast<py::array>();
+
+        void* i_ptr = i_arr.mutable_data();
+        void* o_ptr = o_arr.mutable_data();
+
+        {
+            py::gil_scoped_release release;
+            if(dtype_ == "float64") fftw_execute_dft_c2r((fftw_plan)plan_c2r_, (fftw_complex*)i_ptr, (double*)o_ptr);
+            else fftwf_execute_dft_c2r((fftwf_plan)plan_c2r_, (fftwf_complex*)i_ptr, (float*)o_ptr);
         }
 
-        scale_array(o, 1.0/N_);
+        scale_array(o_arr, 1.0/N_);
     }
 
     ~FFTW_R2C_OutPlace() {
@@ -172,24 +194,29 @@ public:
     }
 
     void forward(py::object in, py::object out) override {
-        void* p = in.cast<py::array>().mutable_data();
-        if(dtype_ == "float64") {
-            fftw_execute_dft_r2c((fftw_plan)plan_r2c_, (double*)p, (fftw_complex*)p);
-        } else {
-            fftwf_execute_dft_r2c((fftwf_plan)plan_r2c_, (float*)p, (fftwf_complex*)p);
+        py::array arr = in.cast<py::array>();
+
+        void* p = arr.mutable_data();
+
+        {
+            py::gil_scoped_release release;
+            if(dtype_ == "float64") fftw_execute_dft_r2c((fftw_plan)plan_r2c_, (double*)p, (fftw_complex*)p);
+            else fftwf_execute_dft_r2c((fftwf_plan)plan_r2c_, (float*)p, (fftwf_complex*)p);
         }
     }
 
     void backward(py::object in, py::object out) override {
-        py::array o = out.cast<py::array>();
-        void* p = o.mutable_data();
-        if(dtype_ == "float64") {
-            fftw_execute_dft_c2r((fftw_plan)plan_c2r_, (fftw_complex*)p, (double*)p);
-        } else {
-            fftwf_execute_dft_c2r((fftwf_plan)plan_c2r_, (fftwf_complex*)p, (float*)p);
+        py::array o_arr = out.cast<py::array>();
+
+        void* p = o_arr.mutable_data();
+
+        {
+            py::gil_scoped_release release;
+            if(dtype_ == "float64") fftw_execute_dft_c2r((fftw_plan)plan_c2r_, (fftw_complex*)p, (double*)p);
+            else fftwf_execute_dft_c2r((fftwf_plan)plan_c2r_, (fftwf_complex*)p, (float*)p);
         }
 
-        scale_array(o, 1.0/N_);
+        scale_array(o_arr, 1.0/N_);
     }
 
     ~FFTW_R2C_InPlace() {
@@ -244,24 +271,30 @@ public:
     }
 
     void forward(py::object in, py::object out) override {
-        void* i = in.cast<py::array>().mutable_data(); void* o = out.cast<py::array>().mutable_data();
-        if(dtype_ == "complex128") {
-            fftw_execute_dft((fftw_plan)plan_fwd_, (fftw_complex*)i, (fftw_complex*)o);
-        } else {
-            fftwf_execute_dft((fftwf_plan)plan_fwd_, (fftwf_complex*)i, (fftwf_complex*)o);
-        }
+        py::array i_arr = in.cast<py::array>();
+        py::array o_arr = out.cast<py::array>();
 
+        void* i_ptr = i_arr.mutable_data();
+        void* o_ptr = o_arr.mutable_data();
+
+        {
+            py::gil_scoped_release release;
+            if(dtype_ == "complex128") fftw_execute_dft((fftw_plan)plan_fwd_, (fftw_complex*)i_ptr, (fftw_complex*)o_ptr);
+            else fftwf_execute_dft((fftwf_plan)plan_fwd_, (fftwf_complex*)i_ptr, (fftwf_complex*)o_ptr);
+        }
     }
 
     void backward(py::object in, py::object out) override {
-        void* i = in.cast<py::array>().mutable_data();
+        py::array i_arr = in.cast<py::array>();
         py::array o_arr = out.cast<py::array>();
-        void* o = o_arr.mutable_data();
 
-        if(dtype_ == "complex128") {
-            fftw_execute_dft((fftw_plan)plan_bwd_, (fftw_complex*)i, (fftw_complex*)o);
-        } else {
-            fftwf_execute_dft((fftwf_plan)plan_bwd_, (fftwf_complex*)i, (fftwf_complex*)o);
+        void* i_ptr = i_arr.mutable_data();
+        void* o_ptr = o_arr.mutable_data();
+
+        {
+            py::gil_scoped_release release;
+            if(dtype_ == "complex128") fftw_execute_dft((fftw_plan)plan_bwd_, (fftw_complex*)i_ptr, (fftw_complex*)o_ptr);
+            else fftwf_execute_dft((fftwf_plan)plan_bwd_, (fftwf_complex*)i_ptr, (fftwf_complex*)o_ptr);
         }
 
         scale_array(o_arr, scale_);
@@ -325,23 +358,30 @@ public:
     }
 
     void forward(py::object in, py::object out) override {
-        void* i = in.cast<py::array>().mutable_data(); void* o = out.cast<py::array>().mutable_data();
-        if(dtype_ == "float64") {
-            fftw_execute_dft_r2c((fftw_plan)plan_r2c_, (double*)i, (fftw_complex*)o);
-        } else {
-            fftwf_execute_dft_r2c((fftwf_plan)plan_r2c_, (float*)i, (fftwf_complex*)o);
+        py::array i_arr = in.cast<py::array>();
+        py::array o_arr = out.cast<py::array>();
+
+        void* i_ptr = i_arr.mutable_data();
+        void* o_ptr = o_arr.mutable_data();
+
+        {
+            py::gil_scoped_release release;
+            if(dtype_ == "float64") fftw_execute_dft_r2c((fftw_plan)plan_r2c_, (double*)i_ptr, (fftw_complex*)o_ptr);
+            else fftwf_execute_dft_r2c((fftwf_plan)plan_r2c_, (float*)i_ptr, (fftwf_complex*)o_ptr);
         }
     }
 
     void backward(py::object in, py::object out) override {
-        void* i = in.cast<py::array>().mutable_data();
+        py::array i_arr = in.cast<py::array>();
         py::array o_arr = out.cast<py::array>();
-        void* o = o_arr.mutable_data();
 
-        if(dtype_ == "float64") {
-            fftw_execute_dft_c2r((fftw_plan)plan_c2r_, (fftw_complex*)i, (double*)o);
-        } else {
-            fftwf_execute_dft_c2r((fftwf_plan)plan_c2r_, (fftwf_complex*)i, (float*)o);
+        void* i_ptr = i_arr.mutable_data();
+        void* o_ptr = o_arr.mutable_data();
+
+        {
+            py::gil_scoped_release release;
+            if(dtype_ == "float64") fftw_execute_dft_c2r((fftw_plan)plan_c2r_, (fftw_complex*)i_ptr, (double*)o_ptr);
+            else fftwf_execute_dft_c2r((fftwf_plan)plan_c2r_, (fftwf_complex*)i_ptr, (float*)o_ptr);
         }
 
         scale_array(o_arr, scale_);

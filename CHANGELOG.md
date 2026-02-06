@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.4] - 2026-02-06
+
+- setup GIL release blocks for wrapping `fftw_execute`/`cufftExec` calls
+- minor refactoring variable names for homogenising the code
+- streamlined testing module through `run_tests.py`
+
 ## [0.1.3] - 2026-02-05
 
 - restructuring based on the "src layout" prescribed by PyPI

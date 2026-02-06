@@ -1,6 +1,9 @@
 from mpi4py import MPI
 import numpy as np
 import sys
+import os
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import test_utils
 
 try:
@@ -12,8 +15,7 @@ except ImportError:
 
 comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
-size = comm.Get_size()
-BACKEND = "fftw_mpi"
+BACKEND = "fftw"
 
 def test_r2c_out_of_place(dtype_str, global_shape, ndim):
     test_utils.print_test_start("[R2C Out-Place]", dtype_str, rank)

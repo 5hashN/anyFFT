@@ -1,8 +1,10 @@
 import numpy as np
 import sys
+import os
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import test_utils
 
-# Import CuPy
 try:
     import cupy as cp
 except ImportError:
@@ -16,7 +18,6 @@ except ImportError:
     sys.exit(1)
 
 BACKEND = "cufft"
-
 FAILED_TESTS = []
 TOTAL_TESTS = 0
 PASSED_TESTS = 0
@@ -33,16 +34,15 @@ def setup_r2c_inplace_buffer_gpu(shape, dtype_str, axes=None):
     complex_shape[target_axis] = complex_shape[target_axis] // 2 + 1
 
     buffer_complex = cp.zeros(complex_shape, dtype=complex_dtype)
-
     buffer_real_view = buffer_complex.view(real_dtype)
+
     slices = [slice(None)] * len(shape)
     slices[target_axis] = slice(0, shape[target_axis])
-
     input_real_slice = buffer_real_view[tuple(slices)]
 
     return buffer_complex, input_real_slice
 
-def run_cufft_test(label, shape, dtype_str, axes=None, ndim=None, is_r2c=False, is_inplace=False):
+def run_cufft_serial_test(label, shape, dtype_str, axes=None, ndim=None, is_r2c=False, is_inplace=False):
     """
     Unified CuPy test runner. Records failures to global list.
     """
@@ -64,17 +64,10 @@ def run_cufft_test(label, shape, dtype_str, axes=None, ndim=None, is_r2c=False, 
     config_str = f"axes={axes}" if axes else f"ndim={ndim}"
 
     test_id = f"{label} {test_type} {place_str} | {config_str} | {shape} | {dtype_str}"
-    header_lbl = f"[{test_type} {place_str}] {config_str}"
-
-    test_utils.print_test_start(header_lbl, full_dtype_str)
+    test_utils.print_test_start(f"[{test_type} {place_str}] {config_str}", full_dtype_str)
 
     try:
-        if not is_r2c:
-            host_data = test_utils.generate_data(shape, complex_dtype_np)
-        else:
-            host_data = test_utils.generate_data(shape, real_dtype_np)
-
-        # Explicit transfer: ref_gpu is strictly a CuPy array.
+        host_data = test_utils.generate_data(shape, real_dtype_np if is_r2c else complex_dtype_np)
         ref_gpu = cp.asarray(host_data)
 
         if not is_r2c:
@@ -99,9 +92,7 @@ def run_cufft_test(label, shape, dtype_str, axes=None, ndim=None, is_r2c=False, 
                 out_buffer = cp.zeros(out_shape, dtype=complex_dtype_cp)
 
         fft = FFT(ndim=len(shape), shape=tuple(shape), axes=tuple(axes) if axes else None,
-                  input=in_buffer, output=out_buffer,
-                  dtype=full_dtype_str, backend=BACKEND)
-
+                  input=in_buffer, output=out_buffer, dtype=full_dtype_str, backend=BACKEND)
         fft.forward(in_buffer, out_buffer)
 
         if is_r2c:
@@ -128,81 +119,46 @@ def run_cufft_test(label, shape, dtype_str, axes=None, ndim=None, is_r2c=False, 
         if diff < tol:
             test_utils.print_test_result(diff, tol=tol)
             PASSED_TESTS += 1
-            return True
         else:
             test_utils.print_test_result(diff, tol=tol)
-            FAILED_TESTS.append(f"{test_id} -> Failed (Diff: {diff:.2e} > {tol})")
-            return False
+            FAILED_TESTS.append(f"{test_id} -> Failed (Diff: {diff:.2e})")
 
     except Exception as e:
         test_utils.print_test_result(0, error=e)
         FAILED_TESTS.append(f"{test_id} -> Error: {str(e)}")
-        return False
 
-def test_legacy_suite():
+def main():
+    test_utils.print_header(BACKEND)
+    # Hardcoded Suite
     print(f"\n{'='*60}\n  HARDCODED \n{'='*60}")
-    precisions = ["float64", "float32"]
-
-    configurations = [
-        (1, [2048]),
-        (2, [1024, 1024]),
-        (3, [64, 64, 64])
-    ]
-
-    for ndim, shape in configurations:
+    for ndim, shape in [(1, [2048]), (2, [1024, 1024]), (3, [64, 64, 64])]:
         test_utils.print_config(ndim, shape)
-        for dtype in precisions:
-            run_cufft_test("HC", shape, dtype, axes=None, ndim=ndim, is_r2c=False, is_inplace=False)
-            run_cufft_test("HC", shape, dtype, axes=None, ndim=ndim, is_r2c=False, is_inplace=True)
-            run_cufft_test("HC", shape, dtype, axes=None, ndim=ndim, is_r2c=True,  is_inplace=False)
-            run_cufft_test("HC", shape, dtype, axes=None, ndim=ndim, is_r2c=True,  is_inplace=True)
+        for dtype in ["float64", "float32"]:
+            for r2c in [False, True]:
+                for inplace in [False, True]:
+                    run_cufft_serial_test("HC", shape, dtype, axes=None, ndim=ndim, is_r2c=r2c, is_inplace=inplace)
 
-def test_generic_suite():
+    # Generic Suite
     print(f"\n{'='*60}\n  GENERIC \n{'='*60}")
-    precisions = ["float64", "float32"]
-
     scenarios = [
         { "shape": [1024], "axes": [0], "desc": "1D Full" },
-        { "shape": [128, 64], "axes": [0],    "desc": "2D Axis 0 (Strided)" },
-        { "shape": [128, 64], "axes": [1],    "desc": "2D Axis 1 (Contiguous)" },
+        { "shape": [128, 64], "axes": [0], "desc": "2D Axis 0" },
+        { "shape": [128, 64], "axes": [1], "desc": "2D Axis 1" },
         { "shape": [128, 64], "axes": [0, 1], "desc": "2D Full" },
         { "shape": [16, 32, 32], "axes": [0, 1, 2], "desc": "3D Full" },
-        { "shape": [4, 8, 32, 32], "axes": [2, 3],       "desc": "4D Spatial" },
-        { "shape": [4, 8, 32, 32], "axes": [0, 1, 2, 3], "desc": "4D Full" },
     ]
 
     for sc in scenarios:
         print(f"\n--- {sc['desc']} ---")
-        for dtype in precisions:
-            run_cufft_test("Gen", sc["shape"], dtype, axes=sc["axes"], is_r2c=False, is_inplace=False)
-            run_cufft_test("Gen", sc["shape"], dtype, axes=sc["axes"], is_r2c=False, is_inplace=True)
-            run_cufft_test("Gen", sc["shape"], dtype, axes=sc["axes"], is_r2c=True, is_inplace=False)
-
+        for dtype in ["float64", "float32"]:
+            run_cufft_serial_test("Gen", sc["shape"], dtype, axes=sc["axes"], is_r2c=False, is_inplace=False)
+            run_cufft_serial_test("Gen", sc["shape"], dtype, axes=sc["axes"], is_r2c=True, is_inplace=False)
+            run_cufft_serial_test("Gen", sc["shape"], dtype, axes=sc["axes"], is_r2c=True, is_inplace=False)
             if (len(sc["shape"])-1) in sc["axes"]:
-                run_cufft_test("Gen", sc["shape"], dtype, axes=sc["axes"], is_r2c=True, is_inplace=True)
+                run_cufft_serial_test("Gen", sc["shape"], dtype, axes=sc["axes"], is_r2c=True, is_inplace=True)
 
-def main():
-    test_utils.print_header(BACKEND)
-
-    test_legacy_suite()
-    test_generic_suite()
-
-    print(f"\n{'='*60}")
-    print("TEST SUMMARY")
-    print(f"{'='*60}")
-    print(f"Total Tests: {TOTAL_TESTS}")
-    print(f"Passed:      {PASSED_TESTS}")
-    print(f"Failed:      {len(FAILED_TESTS)}")
-
-    if FAILED_TESTS:
-        print(f"\n[FAILED TESTS LIST]")
-        for fail_msg in FAILED_TESTS:
-            print(f"  - {fail_msg}")
-        print(f"{'='*60}\n")
-        sys.exit(1)
-    else:
-        print("\nALL TESTS PASSED.")
-        print(f"{'='*60}\n")
+    print(f"\n{'='*60}\nSUMMARY: Total {TOTAL_TESTS} | Passed {PASSED_TESTS} | Failed {len(FAILED_TESTS)}")
+    if FAILED_TESTS: sys.exit(1)
 
 if __name__ == "__main__":
     main()

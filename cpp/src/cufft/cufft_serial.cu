@@ -56,10 +56,10 @@ public:
         uintptr_t i_ptr = in.attr("data").attr("ptr").cast<uintptr_t>();
         uintptr_t o_ptr = out.attr("data").attr("ptr").cast<uintptr_t>();
 
-        if (dtype_ == "complex128") {
-            CUFFT_CHECK(cufftExecZ2Z(plan_, (cufftDoubleComplex*)i_ptr, (cufftDoubleComplex*)o_ptr, CUFFT_FORWARD))
-        } else {
-            CUFFT_CHECK(cufftExecC2C(plan_, (cufftComplex*)i_ptr, (cufftComplex*)o_ptr, CUFFT_FORWARD));
+        {
+            py::gil_scoped_release release;
+            if (dtype_ == "complex128") CUFFT_CHECK(cufftExecZ2Z(plan_, (cufftDoubleComplex*)i_ptr, (cufftDoubleComplex*)o_ptr, CUFFT_FORWARD))
+            else CUFFT_CHECK(cufftExecC2C(plan_, (cufftComplex*)i_ptr, (cufftComplex*)o_ptr, CUFFT_FORWARD));
         }
     }
 
@@ -67,16 +67,15 @@ public:
         uintptr_t i_ptr = in.attr("data").attr("ptr").cast<uintptr_t>();
         uintptr_t o_ptr = out.attr("data").attr("ptr").cast<uintptr_t>();
 
-        if (dtype_ == "complex128") {
-            CUFFT_CHECK(cufftExecZ2Z(plan_, (cufftDoubleComplex*)i_ptr, (cufftDoubleComplex*)o_ptr, CUFFT_INVERSE))
-        { else {
-            CUFFT_CHECK(cufftExecC2C(plan_, (cufftComplex*)i_ptr, (cufftComplex*)o_ptr, CUFFT_INVERSE));
+        {
+            py::gil_scoped_release release;
+            if (dtype_ == "complex128") CUFFT_CHECK(cufftExecZ2Z(plan_, (cufftDoubleComplex*)i_ptr, (cufftDoubleComplex*)o_ptr, CUFFT_INVERSE))
+            else CUFFT_CHECK(cufftExecC2C(plan_, (cufftComplex*)i_ptr, (cufftComplex*)o_ptr, CUFFT_INVERSE));
+            CUDA_CHECK(cudaDeviceSynchronize());
         }
 
-        // Use CuPy for normalization to handle strides safely
         double factor = 1.0 / (double)N_;
         out.attr("__imul__")(factor);
-        CUDA_CHECK(cudaDeviceSynchronize());
     }
 
     ~CUFFT_C2C_Impl() {
@@ -108,10 +107,10 @@ public:
         uintptr_t r_ptr = in.attr("data").attr("ptr").cast<uintptr_t>();
         uintptr_t c_ptr = out.attr("data").attr("ptr").cast<uintptr_t>();
 
-        if (dtype_ == "float64") {
-            CUFFT_CHECK(cufftExecD2Z(plan_r2c_, (cufftDoubleReal*)r_ptr, (cufftDoubleComplex*)c_ptr))
-        } else {
-            CUFFT_CHECK(cufftExecR2C(plan_r2c_, (cufftReal*)r_ptr, (cufftComplex*)c_ptr));
+        {
+            py::gil_scoped_release release;
+            if (dtype_ == "float64") CUFFT_CHECK(cufftExecD2Z(plan_r2c_, (cufftDoubleReal*)r_ptr, (cufftDoubleComplex*)c_ptr))
+            else CUFFT_CHECK(cufftExecR2C(plan_r2c_, (cufftReal*)r_ptr, (cufftComplex*)c_ptr));
         }
     }
 
@@ -119,15 +118,15 @@ public:
         uintptr_t c_ptr = in.attr("data").attr("ptr").cast<uintptr_t>();
         uintptr_t r_ptr = out.attr("data").attr("ptr").cast<uintptr_t>();
 
-        if (dtype_ == "float64") {
-            CUFFT_CHECK(cufftExecZ2D(plan_c2r_, (cufftDoubleComplex*)c_ptr, (cufftDoubleReal*)r_ptr))
-        } else {
-            CUFFT_CHECK(cufftExecC2R(plan_c2r_, (cufftComplex*)c_ptr, (cufftReal*)r_ptr));
+        {
+            py::gil_scoped_release release;
+            if (dtype_ == "float64") CUFFT_CHECK(cufftExecZ2D(plan_c2r_, (cufftDoubleComplex*)c_ptr, (cufftDoubleReal*)r_ptr))
+            else CUFFT_CHECK(cufftExecC2R(plan_c2r_, (cufftComplex*)c_ptr, (cufftReal*)r_ptr));
+            CUDA_CHECK(cudaDeviceSynchronize());
         }
 
         double factor = 1.0 / (double)N_;
         out.attr("__imul__")(factor);
-        CUDA_CHECK(cudaDeviceSynchronize());
     }
 
     ~CUFFT_R2C_Impl() {
@@ -307,12 +306,15 @@ public:
         uintptr_t i_ptr = in.attr("data").attr("ptr").cast<uintptr_t>();
         uintptr_t o_ptr = out.attr("data").attr("ptr").cast<uintptr_t>();
 
-        switch (current_config_.type) {
-            case CUFFT_Z2Z: CUFFT_CHECK(cufftExecZ2Z(plan_, (cufftDoubleComplex*)i_ptr, (cufftDoubleComplex*)o_ptr, CUFFT_FORWARD)); break;
-            case CUFFT_C2C: CUFFT_CHECK(cufftExecC2C(plan_, (cufftComplex*)i_ptr, (cufftComplex*)o_ptr, CUFFT_FORWARD)); break;
-            case CUFFT_D2Z: CUFFT_CHECK(cufftExecD2Z(plan_, (cufftDoubleReal*)i_ptr, (cufftDoubleComplex*)o_ptr)); break;
-            case CUFFT_R2C: CUFFT_CHECK(cufftExecR2C(plan_, (cufftReal*)i_ptr, (cufftComplex*)o_ptr)); break;
-            default: break;
+        {
+            py::gil_scoped_release release;
+            switch (current_config_.type) {
+                case CUFFT_Z2Z: CUFFT_CHECK(cufftExecZ2Z(plan_, (cufftDoubleComplex*)i_ptr, (cufftDoubleComplex*)o_ptr, CUFFT_FORWARD)); break;
+                case CUFFT_C2C: CUFFT_CHECK(cufftExecC2C(plan_, (cufftComplex*)i_ptr, (cufftComplex*)o_ptr, CUFFT_FORWARD)); break;
+                case CUFFT_D2Z: CUFFT_CHECK(cufftExecD2Z(plan_, (cufftDoubleReal*)i_ptr, (cufftDoubleComplex*)o_ptr)); break;
+                case CUFFT_R2C: CUFFT_CHECK(cufftExecR2C(plan_, (cufftReal*)i_ptr, (cufftComplex*)o_ptr)); break;
+                default: break;
+            }
         }
     }
 
@@ -327,18 +329,20 @@ public:
         uintptr_t i_ptr = in.attr("data").attr("ptr").cast<uintptr_t>();
         uintptr_t o_ptr = out.attr("data").attr("ptr").cast<uintptr_t>();
 
-        switch (current_config_.type) {
-            case CUFFT_Z2Z: CUFFT_CHECK(cufftExecZ2Z(plan_, (cufftDoubleComplex*)i_ptr, (cufftDoubleComplex*)o_ptr, CUFFT_INVERSE)); break;
-            case CUFFT_C2C: CUFFT_CHECK(cufftExecC2C(plan_, (cufftComplex*)i_ptr, (cufftComplex*)o_ptr, CUFFT_INVERSE)); break;
-            case CUFFT_Z2D: CUFFT_CHECK(cufftExecZ2D(plan_, (cufftDoubleComplex*)i_ptr, (cufftDoubleReal*)o_ptr)); break;
-            case CUFFT_C2R: CUFFT_CHECK(cufftExecC2R(plan_, (cufftComplex*)i_ptr, (cufftReal*)o_ptr)); break;
-            default: break;
+        {
+            py::gil_scoped_release release;
+            switch (current_config_.type) {
+                case CUFFT_Z2Z: CUFFT_CHECK(cufftExecZ2Z(plan_, (cufftDoubleComplex*)i_ptr, (cufftDoubleComplex*)o_ptr, CUFFT_INVERSE)); break;
+                case CUFFT_C2C: CUFFT_CHECK(cufftExecC2C(plan_, (cufftComplex*)i_ptr, (cufftComplex*)o_ptr, CUFFT_INVERSE)); break;
+                case CUFFT_Z2D: CUFFT_CHECK(cufftExecZ2D(plan_, (cufftDoubleComplex*)i_ptr, (cufftDoubleReal*)o_ptr)); break;
+                case CUFFT_C2R: CUFFT_CHECK(cufftExecC2R(plan_, (cufftComplex*)i_ptr, (cufftReal*)o_ptr)); break;
+                default: break;
+            }
+            CUDA_CHECK(cudaDeviceSynchronize());
         }
 
         double factor = 1.0 / (double)current_config_.logical_size;
         out.attr("__imul__")(factor);
-
-        CUDA_CHECK(cudaDeviceSynchronize());
     }
 };
 

@@ -89,9 +89,9 @@ def get_numpy_types(dtype_str):
     Returns a tuple (real_dtype, complex_dtype) for NumPy.
     Accepts 'floatXX' or 'complexXX' strings.
     """
-    if dtype_str == "float32" or dtype_str == "complex64":
+    if dtype_str in ["float32", "complex64"]:
         return np.float32, np.complex64
-    elif dtype_str == "float64" or dtype_str == "complex128":
+    elif dtype_str in ["float64", "complex128"]:
         return np.float64, np.complex128
     else:
         raise ValueError(f"Unsupported dtype: {dtype_str}")
@@ -104,9 +104,9 @@ def get_cupy_types(dtype_str):
     if not HAS_CUPY:
         raise ImportError("CuPy is not installed, cannot determine GPU types.")
 
-    if dtype_str == "float32" or dtype_str == "complex64":
+    if dtype_str in ["float32", "complex64"]:
         return cp.float32, cp.complex64
-    elif dtype_str == "float64" or dtype_str == "complex128":
+    elif dtype_str in ["float64", "complex128"]:
         return cp.float64, cp.complex128
     else:
         raise ValueError(f"Unsupported dtype: {dtype_str}")

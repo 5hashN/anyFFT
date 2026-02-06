@@ -98,36 +98,26 @@ public:
         cufftType t_c2c = (dtype_ == "complex128") ? CUFFT_Z2Z : CUFFT_C2C;
         std::vector<long long> n_long(shape.begin(), shape.end());
 
-        if (ndim == 3) {
-            CUFFT_CHECK(cufftMakePlan3d(plan_, n_long[0], n_long[1], n_long[2], t_c2c, &workspace));
-        } else {
-            CUFFT_CHECK(cufftMakePlan2d(plan_, n_long[0], n_long[1], t_c2c, &workspace));
-        }
+        if (ndim == 3) CUFFT_CHECK(cufftMakePlan3d(plan_, n_long[0], n_long[1], n_long[2], t_c2c, &workspace));
+        else CUFFT_CHECK(cufftMakePlan2d(plan_, n_long[0], n_long[1], t_c2c, &workspace));
     }
 
     void forward(py::object in, py::object out) override {
         uintptr_t i_ptr = in.attr("data").attr("ptr").cast<uintptr_t>();
         uintptr_t o_ptr = out.attr("data").attr("ptr").cast<uintptr_t>();
 
-        if (dtype_ == "complex128") {
-            CUFFT_CHECK(cufftExecZ2Z(plan_, (cufftDoubleComplex*)i_ptr, (cufftDoubleComplex*)o_ptr, CUFFT_FORWARD));
-        } else {
-            CUFFT_CHECK(cufftExecC2C(plan_, (cufftComplex*)i_ptr, (cufftComplex*)o_ptr, CUFFT_FORWARD));
+        {
+            py::gil_scoped_release release;
+            if (dtype_ == "complex128") CUFFT_CHECK(cufftExecZ2Z(plan_, (cufftDoubleComplex*)i_ptr, (cufftDoubleComplex*)o_ptr, CUFFT_FORWARD));
+            else CUFFT_CHECK(cufftExecC2C(plan_, (cufftComplex*)i_ptr, (cufftComplex*)o_ptr, CUFFT_FORWARD));
+            CUDA_CHECK(cudaDeviceSynchronize());
         }
-        CUDA_CHECK(cudaDeviceSynchronize());
     }
 
     void backward(py::object in, py::object out) override {
         uintptr_t i_ptr = in.attr("data").attr("ptr").cast<uintptr_t>();
         uintptr_t o_ptr = out.attr("data").attr("ptr").cast<uintptr_t>();
 
-        if (dtype_ == "complex128") {
-            CUFFT_CHECK(cufftExecZ2Z(plan_, (cufftDoubleComplex*)i_ptr, (cufftDoubleComplex*)o_ptr, CUFFT_INVERSE));
-        } else {
-            CUFFT_CHECK(cufftExecC2C(plan_, (cufftComplex*)i_ptr, (cufftComplex*)o_ptr, CUFFT_INVERSE));
-        }
-
-        // Normalize
         ssize_t local_elements = out.attr("size").cast<ssize_t>();
         char kind = out.attr("dtype").attr("kind").cast<char>();
         if (kind == 'c') local_elements *= 2;
@@ -135,12 +125,15 @@ public:
         int block = 256;
         int grid = (local_elements + block - 1) / block;
 
-        if (dtype_ == "complex128") {
-            scale_kernel_mpi<double><<<grid, block>>>((double*)o_ptr, (double)global_N_, local_elements);
-        } else {
-            scale_kernel_mpi<float><<<grid, block>>>((float*)o_ptr, (float)global_N_, local_elements);
+        {
+            py::gil_scoped_release release;
+            if (dtype_ == "complex128") CUFFT_CHECK(cufftExecZ2Z(plan_, (cufftDoubleComplex*)i_ptr, (cufftDoubleComplex*)o_ptr, CUFFT_INVERSE));
+            else CUFFT_CHECK(cufftExecC2C(plan_, (cufftComplex*)i_ptr, (cufftComplex*)o_ptr, CUFFT_INVERSE));
+
+            if (dtype_ == "complex128") scale_kernel_mpi<double><<<grid, block>>>((double*)o_ptr, (double)global_N_, local_elements);
+            else scale_kernel_mpi<float><<<grid, block>>>((float*)o_ptr, (float)global_N_, local_elements);
+            CUDA_CHECK(cudaDeviceSynchronize());
         }
-        CUDA_CHECK(cudaDeviceSynchronize());
     }
 
     ~CUFFT_MPI_C2C() {
@@ -194,45 +187,36 @@ public:
         uintptr_t i_ptr = in.attr("data").attr("ptr").cast<uintptr_t>();
         uintptr_t o_ptr = out.attr("data").attr("ptr").cast<uintptr_t>();
 
-        if (i_ptr != o_ptr) {
-            throw std::runtime_error("R2C forward must be In-Place (input and output must match).");
-        }
+        if (i_ptr != o_ptr) throw std::runtime_error("R2C forward must be In-Place (input and output must match).");
 
-        if (dtype_ == "float64") {
-            CUFFT_CHECK(cufftExecD2Z(plan_r2c_, (cufftDoubleReal*)i_ptr, (cufftDoubleComplex*)i_ptr));
-        } else {
-            CUFFT_CHECK(cufftExecR2C(plan_r2c_, (cufftReal*)i_ptr, (cufftComplex*)i_ptr));
+        {
+            py::gil_scoped_release release;
+            if (dtype_ == "float64") CUFFT_CHECK(cufftExecD2Z(plan_r2c_, (cufftDoubleReal*)i_ptr, (cufftDoubleComplex*)i_ptr));
+            else CUFFT_CHECK(cufftExecR2C(plan_r2c_, (cufftReal*)i_ptr, (cufftComplex*)i_ptr));
+            CUDA_CHECK(cudaDeviceSynchronize());
         }
-        CUDA_CHECK(cudaDeviceSynchronize());
     }
 
     void backward(py::object in, py::object out) override {
         uintptr_t i_ptr = in.attr("data").attr("ptr").cast<uintptr_t>();
         uintptr_t o_ptr = out.attr("data").attr("ptr").cast<uintptr_t>();
 
-        if (i_ptr != o_ptr) {
-            throw std::runtime_error("R2C backward must be In-Place (input and output must match).");
-        }
+        if (i_ptr != o_ptr) throw std::runtime_error("R2C backward must be In-Place (input and output must match).");
 
-        if (dtype_ == "float64") {
-            CUFFT_CHECK(cufftExecZ2D(plan_c2r_, (cufftDoubleComplex*)i_ptr, (cufftDoubleReal*)i_ptr));
-        } else {
-            CUFFT_CHECK(cufftExecC2R(plan_c2r_, (cufftComplex*)i_ptr, (cufftReal*)i_ptr));
-        }
-
-        // Normalize
         ssize_t complex_elements = in.attr("size").cast<ssize_t>();
         ssize_t real_elements = complex_elements * 2;
-
         int block = 256;
         int grid = (real_elements + block - 1) / block;
 
-        if (dtype_ == "float64") {
-             scale_kernel_mpi<double><<<grid, block>>>((double*)i_ptr, (double)global_N_, real_elements);
-        } else {
-             scale_kernel_mpi<float><<<grid, block>>>((float*)i_ptr, (float)global_N_, real_elements);
+        {
+            py::gil_scoped_release release;
+            if (dtype_ == "float64") CUFFT_CHECK(cufftExecZ2D(plan_c2r_, (cufftDoubleComplex*)i_ptr, (cufftDoubleReal*)i_ptr));
+            else CUFFT_CHECK(cufftExecC2R(plan_c2r_, (cufftComplex*)i_ptr, (cufftReal*)i_ptr));
+
+            if (dtype_ == "float64") scale_kernel_mpi<double><<<grid, block>>>((double*)i_ptr, (double)global_N_, real_elements);
+            else scale_kernel_mpi<float><<<grid, block>>>((float*)i_ptr, (float)global_N_, real_elements);
+            CUDA_CHECK(cudaDeviceSynchronize());
         }
-        CUDA_CHECK(cudaDeviceSynchronize());
     }
 
     ~CUFFT_MPI_R2C_InPlace() {
@@ -254,9 +238,7 @@ CUFFT_MPI::CUFFT_MPI(int ndim, const std::vector<int>& shape,
         uintptr_t i_ptr = in.attr("data").attr("ptr").cast<uintptr_t>();
         uintptr_t o_ptr = out.attr("data").attr("ptr").cast<uintptr_t>();
 
-        if (i_ptr != o_ptr) {
-            throw std::runtime_error("R2C Out-of-Place not supported. Please use In-Place with a padded buffer.");
-        }
+        if (i_ptr != o_ptr) throw std::runtime_error("R2C Out-of-Place not supported. Please use In-Place with a padded buffer.");
         impl_ = std::make_unique<CUFFT_MPI_R2C_InPlace>(ndim, shape, comm_handle, dtype);
     }
 }
