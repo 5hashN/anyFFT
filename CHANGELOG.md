@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.5] - 2026-02-06
+
+- added multithreading through OpenMP and planner rigor flags for fftw serial module
+- basic benchmarking script against some python FFTs
+
 ## [0.1.4] - 2026-02-06
 
 - setup GIL release blocks for wrapping `fftw_execute`/`cufftExec` calls

@@ -19,7 +19,9 @@ public:
                 const std::vector<int>& axes,
                 py::array input,
                 py::array output,
-                const std::string& dtype);
+                const std::string& dtype,
+                int n_threads,
+                unsigned flags);
 
     void forward(py::object in, py::object out) override;
     void backward(py::object in, py::object out) override;

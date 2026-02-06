@@ -23,6 +23,14 @@ except ImportError:
     pass
 
 try:
+    from ._core import FFTW_ESTIMATE, FFTW_MEASURE, FFTW_PATIENT, FFTW_EXHAUSTIVE
+except ImportError:
+    FFTW_ESTIMATE = 64
+    FFTW_MEASURE = 0
+    FFTW_PATIENT = 32
+    FFTW_EXHAUSTIVE = 8
+
+try:
     from ._core import cufft_serial, cufft_serial_generic
     _HAS_CUDA = True
 except ImportError:
@@ -58,7 +66,7 @@ def has_backend(backend_name):
     return False
 
 
-def FFT(ndim=None, shape=None, axes=None, input=None, output=None, comm=None, dtype="float64", backend="fftw"):
+def FFT(ndim=None, shape=None, axes=None, input=None, output=None, comm=None, dtype="float64", backend="fftw", threads=1, flags=None):
     """
     Factory function to create an FFT backend instance.
 
@@ -71,6 +79,8 @@ def FFT(ndim=None, shape=None, axes=None, input=None, output=None, comm=None, dt
         comm (mpi4py.MPI.Comm, optional): MPI Communicator (Required for MPI backends).
         dtype (str): 'float32', 'float64', 'complex64', or 'complex128'.
         backend (str): 'fftw', 'fftw_mpi', 'cufft', or 'cufft_mpi'.
+        n_threads (int, optional): Number of OpenMP threads to use (FFTW backend only). Defaults to 1.
+        flags (int, optional): FFTW planner flags (e.g., anyFFT.FFTW_MEASURE). Defaults to anyFFT.FFTW_ESTIMATE. (FFTW backend only).
 
     Returns:
         An instance of the requested FFT backend.
@@ -86,6 +96,9 @@ def FFT(ndim=None, shape=None, axes=None, input=None, output=None, comm=None, dt
             raise TypeError("Communicator must be an mpi4py communicator or an integer handle.")
 
     if backend == "fftw":
+        if flags is None:
+            flags = FFTW_ESTIMATE
+
         if comm is None:
             if not _HAS_FFTW:
                 raise RuntimeError("The 'fftw' backend was requested, but anyFFT was compiled without FFTW support.")
@@ -94,12 +107,12 @@ def FFT(ndim=None, shape=None, axes=None, input=None, output=None, comm=None, dt
                 raise ValueError("FFTW backend requires 'input' and 'output' dummy arrays to create a plan.")
 
             if axes is not None:
-                return fftw_serial_generic(shape, axes, input, output, dtype)
+                return fftw_serial_generic(shape, axes, input, output, dtype, threads, flags)
 
             if ndim is None:
                 raise ValueError("Must provide either 'axes' or 'ndim'.")
 
-            return fftw_serial(ndim, shape, input, output, dtype)
+            return fftw_serial(ndim, shape, input, output, dtype, threads, flags)
 
         else:
             if not _HAS_FFTW_MPI:

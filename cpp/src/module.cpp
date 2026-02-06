@@ -90,11 +90,17 @@ std::string doc_str = "anyFFT Core Module\n"
     m.doc() = doc_str.c_str();
 
 #ifdef ENABLE_FFTW
+    m.attr("FFTW_ESTIMATE") = FFTW_ESTIMATE;
+    m.attr("FFTW_MEASURE") = FFTW_MEASURE;
+    m.attr("FFTW_PATIENT") = FFTW_PATIENT;
+    m.attr("FFTW_EXHAUSTIVE") = FFTW_EXHAUSTIVE;
+
     py::class_<FFTW_SERIAL>(m, "fftw_serial")
-        .def(py::init([](int ndim, const std::vector<int>& shape, py::array input, py::array output, const std::string& dtype) {
-            return new FFTW_SERIAL(ndim, shape, {}, input, output, dtype);
+        .def(py::init([](int ndim, const std::vector<int>& shape, py::array input, py::array output,
+                         const std::string& dtype, int n_threads, unsigned flags) {
+            return new FFTW_SERIAL(ndim, shape, {}, input, output, dtype, n_threads, flags);
         }),
-            "ndim"_a, "shape"_a, "input"_a, "output"_a, "dtype"_a,
+            "ndim"_a, "shape"_a, "input"_a, "output"_a, "dtype"_a, "n_threads"_a = 1, "flags"_a = FFTW_ESTIMATE,
             "FFTW backend. Supports:\n"
             " - Real-to-Complex (float64/32)\n"
             " - Complex-to-Complex (complex128/64)\n"
@@ -104,10 +110,11 @@ std::string doc_str = "anyFFT Core Module\n"
 
     // Guru Interface
     py::class_<FFTW_SERIAL_GENERIC>(m, "fftw_serial_generic")
-        .def(py::init([](const std::vector<int>& shape, const std::vector<int>& axes, py::array input, py::array output, const std::string& dtype) {
-            return new FFTW_SERIAL_GENERIC(0, shape, axes, input, output, dtype);
+        .def(py::init([](const std::vector<int>& shape, const std::vector<int>& axes, py::array input, py::array output,
+                         const std::string& dtype, int n_threads, unsigned flags) {
+            return new FFTW_SERIAL_GENERIC(0, shape, axes, input, output, dtype, n_threads, flags);
         }),
-            "shape"_a, "axes"_a, "input"_a, "output"_a, "dtype"_a,
+            "shape"_a, "axes"_a, "input"_a, "output"_a, "dtype"_a, "n_threads"_a = 1, "flags"_a = FFTW_ESTIMATE,
             "Generic FFTW backend (Guru)")
         .def("forward", &FFTW_SERIAL_GENERIC::forward)
         .def("backward", &FFTW_SERIAL_GENERIC::backward);

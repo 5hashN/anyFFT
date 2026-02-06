@@ -10,7 +10,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "anyFFT"
-version = "0.1.4"
+version = "0.1.5"
 authors = [
     {name="5hashN"}
 ]
@@ -24,7 +24,6 @@ classifiers = [
     "Operating System :: POSIX :: Linux",
     "Programming Language :: C++",
     "Programming Language :: Python :: 3",
-    "License :: Other/Proprietary License",
     "Private :: Do Not Upload"
 ]
 

@@ -127,6 +127,27 @@ fft = FFT(ndim=2, shape=shape, dtype="float64", backend="cufft")
 fft.forward(data, out)
 ```
 
+### Performance Tuning (Experimental)
+
+You can optimize the CPU backend by enabling multithreading and adjusting the FFTW planner rigor.
+
+```Python
+import numpy as np
+from anyFFT import FFT, FFTW_MEASURE, FFTW_PATIENT
+
+# ... setup data ...
+
+# Create a highly optimized plan
+# flags: Controls planner rigor.
+#        FFTW_ESTIMATE (Default) - Fast setup, reasonable speed.
+#        FFTW_MEASURE - Slower setup, faster execution. (Overwrites input during plan!)
+#        FFTW_PATIENT - Very slow setup, maximum execution speed.
+# n_threads: Number of OMP threads to use (requires library compiled with OpenMP).
+fft = FFT(ndim=3, shape=(128, 128, 128), dtype="complex128", backend="fftw",
+          input=in_data, output=out_data,
+          n_threads=8, flags=FFTW_MEASURE)
+```
+
 For complete working examples of how to use anyFFT in both serial and parallel configurations, please refer to the test scripts included in the repository.
 
 ## License

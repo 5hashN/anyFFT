@@ -115,6 +115,14 @@ if not HAS_FFTW and not HAS_CUDA:
 # Flags for the C++ Compiler
 extra_compile_args = ["-O3", "-Wall", "-std=c++17"]
 
+# Enable Hardware Vectorization
+if sys.platform == "darwin":
+    # Apple Silicon (M1/M2/M3) optimizations
+    extra_compile_args.append("-mcpu=native")
+else:
+    # Linux/Windows (Intel/AMD) optimizations (AVX, AVX2, FMA)
+    extra_compile_args.append("-march=native")
+
 # Flags for the Linker
 extra_link_args = []
 if sys.platform == "darwin":
@@ -143,7 +151,57 @@ if HAS_FFTW:
     define_macros.append(("ENABLE_FFTW", None))
     include_dirs.append(FFTW_INC)
     library_dirs.append(FFTW_LIB)
+
     libraries.extend(["fftw3", "fftw3f"])
+
+    has_openmp = False
+    omp_flags = []
+    omp_libs = []
+
+    if sys.platform == "darwin":
+        libomp_path = None
+        try:
+            res = subprocess.run(["brew", "--prefix", "libomp"], capture_output=True, text=True)
+            if res.returncode == 0:
+                libomp_path = res.stdout.strip()
+        except FileNotFoundError:
+            pass
+
+        # Fallback checks
+        if not libomp_path and os.path.exists("/opt/homebrew/opt/libomp"):
+            libomp_path = "/opt/homebrew/opt/libomp"
+        elif not libomp_path and os.path.exists("/usr/local/opt/libomp"):
+            libomp_path = "/usr/local/opt/libomp"
+
+        if libomp_path:
+            print(f"Found libomp at {libomp_path}. Enabling OpenMP.")
+            include_dirs.append(os.path.join(libomp_path, "include"))
+            library_dirs.append(os.path.join(libomp_path, "lib"))
+            omp_libs = ["omp"]
+            omp_flags = ["-Xpreprocessor", "-fopenmp"]
+            has_openmp = True
+        else:
+            print("NOTICE: libomp not found. compiling without OpenMP support.")
+
+    else:
+        # Linux/Standard: Assume OpenMP is available via compiler flag
+        print("Enabling OpenMP (Standard Linux/GCC detected).")
+        omp_flags = ["-fopenmp"]
+        has_openmp = True
+
+    if has_openmp:
+        # Add the Threaded FFTW libraries
+        libraries.extend(["fftw3_omp", "fftw3f_omp"])
+        libraries.extend(omp_libs)
+        extra_compile_args.extend(omp_flags)
+
+        # NOTE: For linking on Mac, we usually don't need extra_link_args if we link 'omp' directly,
+        # but adding the flags doesn't hurt.
+        if sys.platform != "darwin":
+            extra_link_args.extend(omp_flags)
+
+        # Define the macro for C++ code
+        define_macros.append(("ENABLE_OPENMP", None))
 
     if ENABLE_MPI:
         print("Enabling CPU MPI support (FFTW-MPI).")
