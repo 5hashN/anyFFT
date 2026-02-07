@@ -1,5 +1,6 @@
 # anyFFT
 
+![Build Status](https://github.com/5hashN/anyFFT/actions/workflows/ci.yml/badge.svg)
 ![Language](https://img.shields.io/badge/language-C%2B%2B%20%7C%20Python-blue)
 ![Backend](https://img.shields.io/badge/backends-FFTW3%20%7C%20CUDA%20%7C%20MPI-green)
 

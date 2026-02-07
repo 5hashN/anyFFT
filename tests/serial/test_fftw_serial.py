@@ -16,6 +16,7 @@ FAILED_TESTS = []
 TOTAL_TESTS = 0
 PASSED_TESTS = 0
 
+
 def setup_r2c_inplace_buffer(shape, dtype_str, axes=None):
     """
     Helper to create a padded buffer for In-Place R2C transforms.
@@ -35,7 +36,10 @@ def setup_r2c_inplace_buffer(shape, dtype_str, axes=None):
 
     return buffer_complex, input_real_slice
 
-def run_fftw_serial_test(label, shape, dtype_str, axes=None, ndim=None, is_r2c=False, is_inplace=False):
+
+def run_fftw_serial_test(
+    label, shape, dtype_str, axes=None, ndim=None, is_r2c=False, is_inplace=False
+):
     """
     Unified test runner. Records failures to global list.
     """
@@ -55,7 +59,9 @@ def run_fftw_serial_test(label, shape, dtype_str, axes=None, ndim=None, is_r2c=F
     config_str = f"axes={axes}" if axes else f"ndim={ndim}"
 
     test_id = f"{label} {test_type} {place_str} | {config_str} | {shape} | {dtype_str}"
-    test_utils.print_test_start(f"[{test_type} {place_str}] {config_str}", full_dtype_str)
+    test_utils.print_test_start(
+        f"[{test_type} {place_str}] {config_str}", full_dtype_str
+    )
 
     try:
         if not is_r2c:
@@ -71,7 +77,9 @@ def run_fftw_serial_test(label, shape, dtype_str, axes=None, ndim=None, is_r2c=F
         else:
             clean_real_input = test_utils.generate_data(shape, real_dtype)
             if is_inplace:
-                buffer_complex, input_real_slice = setup_r2c_inplace_buffer(shape, dtype_str, axes)
+                buffer_complex, input_real_slice = setup_r2c_inplace_buffer(
+                    shape, dtype_str, axes
+                )
                 np.copyto(input_real_slice, clean_real_input)
                 in_buffer = input_real_slice
                 out_buffer = buffer_complex
@@ -84,9 +92,15 @@ def run_fftw_serial_test(label, shape, dtype_str, axes=None, ndim=None, is_r2c=F
                 out_buffer = np.zeros(out_shape, dtype=complex_dtype)
                 copy_ref = clean_real_input
 
-        fft = FFT(ndim=ndim, shape=shape, axes=axes,
-                  input=in_buffer, output=out_buffer,
-                  dtype=full_dtype_str, backend=BACKEND)
+        fft = FFT(
+            ndim=ndim,
+            shape=shape,
+            axes=axes,
+            input=in_buffer,
+            output=out_buffer,
+            dtype=full_dtype_str,
+            backend=BACKEND,
+        )
 
         fft.forward(in_buffer, out_buffer)
 
@@ -121,6 +135,7 @@ def run_fftw_serial_test(label, shape, dtype_str, axes=None, ndim=None, is_r2c=F
         test_utils.print_test_result(0, error=e)
         FAILED_TESTS.append(f"{test_id} -> Error: {str(e)}")
 
+
 def main():
     test_utils.print_header(BACKEND)
     # Hardcoded Suite
@@ -130,31 +145,71 @@ def main():
         for dtype in ["float64", "float32"]:
             for r2c in [False, True]:
                 for inplace in [False, True]:
-                    run_fftw_serial_test("HC", shape, dtype, axes=None, ndim=ndim, is_r2c=r2c, is_inplace=inplace)
+                    run_fftw_serial_test(
+                        "HC",
+                        shape,
+                        dtype,
+                        axes=None,
+                        ndim=ndim,
+                        is_r2c=r2c,
+                        is_inplace=inplace,
+                    )
 
     # Generic Suite
     print(f"\n{'='*60}\n  GENERIC \n{'='*60}")
     scenarios = [
-        { "shape": [1024], "axes": [0], "desc": "1D Full" },
-        { "shape": [128, 64], "axes": [0], "desc": "2D Axis 0" },
-        { "shape": [128, 64], "axes": [1], "desc": "2D Axis 1" },
-        { "shape": [128, 64], "axes": [0, 1], "desc": "2D Full" },
-        { "shape": [16, 32, 32], "axes": [0, 1, 2], "desc": "3D Full" },
-        { "shape": [4, 8, 32, 32], "axes": [2, 3],       "desc": "4D Spatial" },
-        { "shape": [4, 8, 32, 32], "axes": [0, 1, 2, 3], "desc": "4D Full" },
+        {"shape": [1024], "axes": [0], "desc": "1D Full"},
+        {"shape": [128, 64], "axes": [0], "desc": "2D Axis 0"},
+        {"shape": [128, 64], "axes": [1], "desc": "2D Axis 1"},
+        {"shape": [128, 64], "axes": [0, 1], "desc": "2D Full"},
+        {"shape": [16, 32, 32], "axes": [0, 1, 2], "desc": "3D Full"},
+        {"shape": [4, 8, 32, 32], "axes": [2, 3], "desc": "4D Spatial"},
+        {"shape": [4, 8, 32, 32], "axes": [0, 1, 2, 3], "desc": "4D Full"},
     ]
 
     for sc in scenarios:
         print(f"\n--- {sc['desc']} ---")
         for dtype in ["float64", "float32"]:
-            run_fftw_serial_test("Gen", sc["shape"], dtype, axes=sc["axes"], is_r2c=False, is_inplace=False)
-            run_fftw_serial_test("Gen", sc["shape"], dtype, axes=sc["axes"], is_r2c=False, is_inplace=True)
-            run_fftw_serial_test("Gen", sc["shape"], dtype, axes=sc["axes"], is_r2c=True, is_inplace=False)
-            if (len(sc["shape"])-1) in sc["axes"]:
-                run_fftw_serial_test("Gen", sc["shape"], dtype, axes=sc["axes"], is_r2c=True, is_inplace=True)
+            run_fftw_serial_test(
+                "Gen",
+                sc["shape"],
+                dtype,
+                axes=sc["axes"],
+                is_r2c=False,
+                is_inplace=False,
+            )
+            run_fftw_serial_test(
+                "Gen",
+                sc["shape"],
+                dtype,
+                axes=sc["axes"],
+                is_r2c=False,
+                is_inplace=True,
+            )
+            run_fftw_serial_test(
+                "Gen",
+                sc["shape"],
+                dtype,
+                axes=sc["axes"],
+                is_r2c=True,
+                is_inplace=False,
+            )
+            if (len(sc["shape"]) - 1) in sc["axes"]:
+                run_fftw_serial_test(
+                    "Gen",
+                    sc["shape"],
+                    dtype,
+                    axes=sc["axes"],
+                    is_r2c=True,
+                    is_inplace=True,
+                )
 
-    print(f"\n{'='*60}\nSUMMARY: Total {TOTAL_TESTS} | Passed {PASSED_TESTS} | Failed {len(FAILED_TESTS)}")
-    if FAILED_TESTS: sys.exit(1)
+    print(
+        f"\n{'='*60}\nSUMMARY: Total {TOTAL_TESTS} | Passed {PASSED_TESTS} | Failed {len(FAILED_TESTS)}"
+    )
+    if FAILED_TESTS:
+        sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

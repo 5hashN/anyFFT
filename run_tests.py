@@ -12,6 +12,7 @@ RED = "\033[91m"
 YELLOW = "\033[93m"
 RESET = "\033[0m"
 
+
 def print_status(name, status, message=""):
     if status == "PASS":
         print(f"{name:<40} {GREEN}[PASS]{RESET} {message}")
@@ -19,6 +20,7 @@ def print_status(name, status, message=""):
         print(f"{name:<40} {RED}[FAIL]{RESET} {message}")
     elif status == "SKIP":
         print(f"{name:<40} {YELLOW}[SKIP]{RESET} {message}")
+
 
 def run_command(cmd, test_name):
     try:
@@ -32,6 +34,7 @@ def run_command(cmd, test_name):
         print(f"\n{RED}Executable not found for command: {cmd[0]}{RESET}")
         return False
 
+
 def main():
     print(f"{'='*60}\nanyFFT Test Runner\n{'='*60}")
 
@@ -39,16 +42,29 @@ def main():
     has_gpu = False
     try:
         import cupy
-        if shutil.which("nvcc"): has_gpu = True
-    except ImportError: pass
 
-    print(f"Environment: MPI={'Yes' if has_mpi else 'No'} | GPU={'Yes' if has_gpu else 'No'}\n")
+        if shutil.which("nvcc"):
+            has_gpu = True
+    except ImportError:
+        pass
+
+    print(
+        f"Environment: MPI={'Yes' if has_mpi else 'No'} | GPU={'Yes' if has_gpu else 'No'}\n"
+    )
 
     results = {"pass": 0, "fail": 0, "skip": 0}
     failed_tests = []
 
-    serial_tests = sorted([f for f in os.listdir(SERIAL_DIR) if f.startswith("test_") and f.endswith(".py")])
-    mpi_tests = sorted([f for f in os.listdir(MPI_DIR) if f.startswith("test_") and f.endswith(".py")])
+    serial_tests = sorted(
+        [
+            f
+            for f in os.listdir(SERIAL_DIR)
+            if f.startswith("test_") and f.endswith(".py")
+        ]
+    )
+    mpi_tests = sorted(
+        [f for f in os.listdir(MPI_DIR) if f.startswith("test_") and f.endswith(".py")]
+    )
 
     print(f"[{'SERIAL TESTS':^20}]")
     for script in serial_tests:
@@ -60,7 +76,8 @@ def main():
             continue
 
         success = run_command([sys.executable, path], script)
-        if success: results["pass"] += 1
+        if success:
+            results["pass"] += 1
         else:
             results["fail"] += 1
             failed_tests.append(script)
@@ -81,7 +98,8 @@ def main():
             cmd = ["mpirun", "-n", "2", sys.executable, path]
             success = run_command(cmd, script)
 
-            if success: results["pass"] += 1
+            if success:
+                results["pass"] += 1
             else:
                 results["fail"] += 1
                 failed_tests.append(script)
@@ -93,11 +111,13 @@ def main():
 
     if failed_tests:
         print("\nFailures:")
-        for t in failed_tests: print(f"  - {t}")
+        for t in failed_tests:
+            print(f"  - {t}")
         sys.exit(1)
     else:
         print(f"\n{GREEN}ALL CHECKS PASSED.{RESET}")
         sys.exit(0)
+
 
 if __name__ == "__main__":
     main()

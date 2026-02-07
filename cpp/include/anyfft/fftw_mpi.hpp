@@ -21,6 +21,8 @@ public:
              py::array output,
              int comm_handle,
              const std::string& dtype);
+            //  int n_threads,
+            //  unsigned flags);
 
     void forward(py::object in, py::object out) override;
     void backward(py::object in, py::object out) override;

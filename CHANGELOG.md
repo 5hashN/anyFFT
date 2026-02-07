@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.6] - 2026-02-07
+
+- added github workflows for testing
+- attempt at linting through `black` but giving up for now
+- benchmarking performance testing
+
 ## [0.1.5] - 2026-02-06
 
 - added multithreading through OpenMP and planner rigor flags for fftw serial module

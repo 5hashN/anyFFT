@@ -18,6 +18,7 @@ comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
 BACKEND = "cufft_mpi"
 
+
 def test_c2c_in_place(real_dtype_str, global_shape, ndim):
     c_dtype_str = test_utils.get_c2c_dtype_str(real_dtype_str)
     test_utils.print_test_start("[C2C In-Place ]", c_dtype_str, rank)
@@ -36,14 +37,25 @@ def test_c2c_in_place(real_dtype_str, global_shape, ndim):
     data_buffer = cp.zeros(in_shape, dtype=complex_dtype)
 
     # Fill
-    host_data = test_utils.generate_data(in_shape, np.complex128 if real_dtype_str=="float64" else np.complex64, start_indices=in_start)
+    host_data = test_utils.generate_data(
+        in_shape,
+        np.complex128 if real_dtype_str == "float64" else np.complex64,
+        start_indices=in_start,
+    )
     data_buffer[:] = cp.asarray(host_data)
     clean_input = data_buffer.copy()
 
     # Exec
     try:
-        fft = FFT(ndim, global_shape, input=data_buffer, output=data_buffer,
-                  comm=comm, dtype=c_dtype_str, backend=BACKEND)
+        fft = FFT(
+            ndim,
+            global_shape,
+            input=data_buffer,
+            output=data_buffer,
+            comm=comm,
+            dtype=c_dtype_str,
+            backend=BACKEND,
+        )
 
         fft.forward(data_buffer, data_buffer)
         fft.backward(data_buffer, data_buffer)
@@ -53,6 +65,7 @@ def test_c2c_in_place(real_dtype_str, global_shape, ndim):
         test_utils.print_test_result(global_diff, rank=rank)
     except Exception as e:
         test_utils.print_test_result(0, rank=rank, error=e)
+
 
 def test_c2c_out_of_place(real_dtype_str, global_shape, ndim):
     c_dtype_str = test_utils.get_c2c_dtype_str(real_dtype_str)
@@ -71,13 +84,24 @@ def test_c2c_out_of_place(real_dtype_str, global_shape, ndim):
     local_out = cp.empty_like(local_in)
     local_back = cp.empty_like(local_in)
 
-    host_data = test_utils.generate_data(in_shape, np.complex128 if real_dtype_str=="float64" else np.complex64, start_indices=in_start)
+    host_data = test_utils.generate_data(
+        in_shape,
+        np.complex128 if real_dtype_str == "float64" else np.complex64,
+        start_indices=in_start,
+    )
     local_in[:] = cp.asarray(host_data)
     local_in_ref = local_in.copy()
 
     try:
-        fft = FFT(ndim, global_shape, input=local_in, output=local_out,
-                  comm=comm, dtype=c_dtype_str, backend=BACKEND)
+        fft = FFT(
+            ndim,
+            global_shape,
+            input=local_in,
+            output=local_out,
+            comm=comm,
+            dtype=c_dtype_str,
+            backend=BACKEND,
+        )
 
         fft.forward(local_in, local_out)
         fft.backward(local_out, local_back)
@@ -87,6 +111,7 @@ def test_c2c_out_of_place(real_dtype_str, global_shape, ndim):
         test_utils.print_test_result(global_diff, rank=rank)
     except Exception as e:
         test_utils.print_test_result(0, rank=rank, error=e)
+
 
 def test_r2c_in_place(dtype_str, global_shape, ndim):
     test_utils.print_test_start("[R2C In-Place ]", dtype_str, rank)
@@ -110,9 +135,9 @@ def test_r2c_in_place(dtype_str, global_shape, ndim):
 
     # View Slicing (Valid Real portion)
     if ndim == 3:
-        valid_slice = real_view[:, :, :global_shape[2]]
+        valid_slice = real_view[:, :, : global_shape[2]]
     else:
-        valid_slice = real_view[:, :global_shape[1]]
+        valid_slice = real_view[:, : global_shape[1]]
 
     # Fill
     host_data = test_utils.generate_data(in_shape, np_real, start_indices=out_start)
@@ -121,8 +146,15 @@ def test_r2c_in_place(dtype_str, global_shape, ndim):
 
     # Exec
     try:
-        fft = FFT(ndim, global_shape, input=data_buffer, output=data_buffer,
-                  comm=comm, dtype=dtype_str, backend=BACKEND)
+        fft = FFT(
+            ndim,
+            global_shape,
+            input=data_buffer,
+            output=data_buffer,
+            comm=comm,
+            dtype=dtype_str,
+            backend=BACKEND,
+        )
 
         fft.forward(data_buffer, data_buffer)
         fft.backward(data_buffer, data_buffer)
@@ -132,6 +164,7 @@ def test_r2c_in_place(dtype_str, global_shape, ndim):
         test_utils.print_test_result(global_diff, rank=rank)
     except Exception as e:
         test_utils.print_test_result(0, rank=rank, error=e)
+
 
 def test_r2c_out_of_place(dtype_str, global_shape, ndim):
     test_utils.print_test_start("[R2C Out-Place]", dtype_str, rank)
@@ -158,8 +191,15 @@ def test_r2c_out_of_place(dtype_str, global_shape, ndim):
 
     # Exec
     try:
-        fft = FFT(ndim, global_shape, input=local_real, output=local_complex,
-                  comm=comm, dtype=dtype_str, backend=BACKEND)
+        fft = FFT(
+            ndim,
+            global_shape,
+            input=local_real,
+            output=local_complex,
+            comm=comm,
+            dtype=dtype_str,
+            backend=BACKEND,
+        )
         fft.forward(local_real, local_complex)
         fft.backward(local_complex, local_back)
 
@@ -168,6 +208,7 @@ def test_r2c_out_of_place(dtype_str, global_shape, ndim):
         test_utils.print_test_result(global_diff, rank=rank)
     except Exception as e:
         test_utils.print_test_result(0, rank=rank, error=e)
+
 
 def main():
     test_utils.print_header(BACKEND, comm)
@@ -178,15 +219,18 @@ def main():
     for ndim, shape in configs:
         test_utils.print_config(ndim, shape, rank)
         for dtype in dtypes:
-            if rank == 0: print(f"Precision: {dtype}")
+            if rank == 0:
+                print(f"Precision: {dtype}")
             test_r2c_out_of_place(dtype, shape, ndim)
             test_r2c_in_place(dtype, shape, ndim)
             test_c2c_out_of_place(dtype, shape, ndim)
             test_c2c_in_place(dtype, shape, ndim)
-            if rank == 0: print("")
+            if rank == 0:
+                print("")
 
     if rank == 0:
         print("Tests Completed.")
+
 
 if __name__ == "__main__":
     main()

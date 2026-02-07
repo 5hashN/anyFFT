@@ -44,10 +44,15 @@ except ImportError:
 
 # Define Exports
 __all__ = ["FFT"]
-if _HAS_FFTW: __all__.extend(["fftw_serial", "fftw_serial_generic"])
-if _HAS_FFTW_MPI: __all__.append("fftw_mpi")
-if _HAS_CUDA: __all__.extend(["cufft_serial", "cufft_serial_generic"])
-if _HAS_CUDA_MPI: __all__.append("cufft_mpi")
+if _HAS_FFTW:
+    __all__.extend(["fftw_serial", "fftw_serial_generic"])
+if _HAS_FFTW_MPI:
+    __all__.append("fftw_mpi")
+if _HAS_CUDA:
+    __all__.extend(["cufft_serial", "cufft_serial_generic"])
+if _HAS_CUDA_MPI:
+    __all__.append("cufft_mpi")
+
 
 def has_backend(backend_name):
     """
@@ -59,14 +64,29 @@ def has_backend(backend_name):
     Returns:
         bool: True if available, False otherwise.
     """
-    if backend_name == "fftw": return _HAS_FFTW
-    if backend_name == "fftw_mpi": return _HAS_FFTW_MPI
-    if backend_name == "cufft": return _HAS_CUDA
-    if backend_name == "cufft_mpi": return _HAS_CUDA_MPI
+    if backend_name == "fftw":
+        return _HAS_FFTW
+    if backend_name == "fftw_mpi":
+        return _HAS_FFTW_MPI
+    if backend_name == "cufft":
+        return _HAS_CUDA
+    if backend_name == "cufft_mpi":
+        return _HAS_CUDA_MPI
     return False
 
 
-def FFT(ndim=None, shape=None, axes=None, input=None, output=None, comm=None, dtype="float64", backend="fftw", threads=1, flags=None):
+def FFT(
+    ndim=None,
+    shape=None,
+    axes=None,
+    input=None,
+    output=None,
+    comm=None,
+    dtype="float64",
+    backend="fftw",
+    threads=1,
+    flags=None,
+):
     """
     Factory function to create an FFT backend instance.
 

@@ -8,6 +8,7 @@ from setuptools.command.build_ext import build_ext
 import pybind11
 import numpy
 
+
 # Helper: Path Discovery
 def get_env_path(env_var, default=None):
     """Retrieves a path from env var, checking if it exists."""
@@ -15,6 +16,7 @@ def get_env_path(env_var, default=None):
     if path and os.path.isdir(path):
         return path
     return None
+
 
 # MPI Detection
 ENABLE_MPI = False
@@ -35,6 +37,7 @@ else:
     # Fallback to mpi4py detection
     try:
         import mpi4py
+
         ENABLE_MPI = True
         mpi_include_dirs.append(mpi4py.get_include())
         # We assume standard linker paths will find 'mpi' if not specified
@@ -50,7 +53,9 @@ FFTW_ROOT = get_env_path("FFTW_ROOT")
 if not FFTW_ROOT and sys.platform == "darwin":
     try:
         # Ask brew where fftw is installed
-        res = subprocess.run(["brew", "--prefix", "fftw"], capture_output=True, text=True)
+        res = subprocess.run(
+            ["brew", "--prefix", "fftw"], capture_output=True, text=True
+        )
         if res.returncode == 0:
             FFTW_ROOT = res.stdout.strip()
     except FileNotFoundError:
@@ -90,7 +95,7 @@ if HAS_CUDA and ENABLE_MPI:
     # Check common subdirectories for the header
     possible_include_paths = [
         os.path.join(CUFFTMP_ROOT, "include"),
-        os.path.join(CUFFTMP_ROOT, "math_libs", "include"), # Common in HPC SDK
+        os.path.join(CUFFTMP_ROOT, "math_libs", "include"),  # Common in HPC SDK
     ]
 
     cufftmp_inc_found = None
@@ -161,7 +166,9 @@ if HAS_FFTW:
     if sys.platform == "darwin":
         libomp_path = None
         try:
-            res = subprocess.run(["brew", "--prefix", "libomp"], capture_output=True, text=True)
+            res = subprocess.run(
+                ["brew", "--prefix", "libomp"], capture_output=True, text=True
+            )
             if res.returncode == 0:
                 libomp_path = res.stdout.strip()
         except FileNotFoundError:
@@ -264,8 +271,9 @@ if HAS_CUDA:
                         # Ensure directory exists in build_temp
                         os.makedirs(os.path.dirname(obj_path), exist_ok=True)
 
-                        cmd = [ NVCC_PATH, "-c", source, "-o", obj_path,
-                            "-std=c++17", "-Xcompiler", "-fPIC", "-arch=native"
+                        cmd = [
+                            NVCC_PATH, "-c", source, "-o", obj_path,
+                            "-std=c++17", "-Xcompiler", "-fPIC", "-arch=native",
                         ]
 
                         for macro, val in ext.define_macros:

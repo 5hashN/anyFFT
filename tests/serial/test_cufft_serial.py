@@ -22,6 +22,7 @@ FAILED_TESTS = []
 TOTAL_TESTS = 0
 PASSED_TESTS = 0
 
+
 def setup_r2c_inplace_buffer_gpu(shape, dtype_str, axes=None):
     """
     Helper to create a padded GPU buffer for In-Place R2C transforms.
@@ -42,7 +43,10 @@ def setup_r2c_inplace_buffer_gpu(shape, dtype_str, axes=None):
 
     return buffer_complex, input_real_slice
 
-def run_cufft_serial_test(label, shape, dtype_str, axes=None, ndim=None, is_r2c=False, is_inplace=False):
+
+def run_cufft_serial_test(
+    label, shape, dtype_str, axes=None, ndim=None, is_r2c=False, is_inplace=False
+):
     """
     Unified CuPy test runner. Records failures to global list.
     """
@@ -64,10 +68,14 @@ def run_cufft_serial_test(label, shape, dtype_str, axes=None, ndim=None, is_r2c=
     config_str = f"axes={axes}" if axes else f"ndim={ndim}"
 
     test_id = f"{label} {test_type} {place_str} | {config_str} | {shape} | {dtype_str}"
-    test_utils.print_test_start(f"[{test_type} {place_str}] {config_str}", full_dtype_str)
+    test_utils.print_test_start(
+        f"[{test_type} {place_str}] {config_str}", full_dtype_str
+    )
 
     try:
-        host_data = test_utils.generate_data(shape, real_dtype_np if is_r2c else complex_dtype_np)
+        host_data = test_utils.generate_data(
+            shape, real_dtype_np if is_r2c else complex_dtype_np
+        )
         ref_gpu = cp.asarray(host_data)
 
         if not is_r2c:
@@ -79,7 +87,9 @@ def run_cufft_serial_test(label, shape, dtype_str, axes=None, ndim=None, is_r2c=
                 out_buffer = cp.zeros_like(ref_gpu)
         else:
             if is_inplace:
-                buffer_complex, input_real_slice = setup_r2c_inplace_buffer_gpu(shape, dtype_str, axes)
+                buffer_complex, input_real_slice = setup_r2c_inplace_buffer_gpu(
+                    shape, dtype_str, axes
+                )
                 input_real_slice[:] = ref_gpu
                 in_buffer = input_real_slice
                 out_buffer = buffer_complex
@@ -91,8 +101,15 @@ def run_cufft_serial_test(label, shape, dtype_str, axes=None, ndim=None, is_r2c=
                 in_buffer = ref_gpu
                 out_buffer = cp.zeros(out_shape, dtype=complex_dtype_cp)
 
-        fft = FFT(ndim=len(shape), shape=tuple(shape), axes=tuple(axes) if axes else None,
-                  input=in_buffer, output=out_buffer, dtype=full_dtype_str, backend=BACKEND)
+        fft = FFT(
+            ndim=len(shape),
+            shape=tuple(shape),
+            axes=tuple(axes) if axes else None,
+            input=in_buffer,
+            output=out_buffer,
+            dtype=full_dtype_str,
+            backend=BACKEND,
+        )
         fft.forward(in_buffer, out_buffer)
 
         if is_r2c:
@@ -127,6 +144,7 @@ def run_cufft_serial_test(label, shape, dtype_str, axes=None, ndim=None, is_r2c=
         test_utils.print_test_result(0, error=e)
         FAILED_TESTS.append(f"{test_id} -> Error: {str(e)}")
 
+
 def main():
     test_utils.print_header(BACKEND)
     # Hardcoded Suite
@@ -136,29 +154,69 @@ def main():
         for dtype in ["float64", "float32"]:
             for r2c in [False, True]:
                 for inplace in [False, True]:
-                    run_cufft_serial_test("HC", shape, dtype, axes=None, ndim=ndim, is_r2c=r2c, is_inplace=inplace)
+                    run_cufft_serial_test(
+                        "HC",
+                        shape,
+                        dtype,
+                        axes=None,
+                        ndim=ndim,
+                        is_r2c=r2c,
+                        is_inplace=inplace,
+                    )
 
     # Generic Suite
     print(f"\n{'='*60}\n  GENERIC \n{'='*60}")
     scenarios = [
-        { "shape": [1024], "axes": [0], "desc": "1D Full" },
-        { "shape": [128, 64], "axes": [0], "desc": "2D Axis 0" },
-        { "shape": [128, 64], "axes": [1], "desc": "2D Axis 1" },
-        { "shape": [128, 64], "axes": [0, 1], "desc": "2D Full" },
-        { "shape": [16, 32, 32], "axes": [0, 1, 2], "desc": "3D Full" },
+        {"shape": [1024], "axes": [0], "desc": "1D Full"},
+        {"shape": [128, 64], "axes": [0], "desc": "2D Axis 0"},
+        {"shape": [128, 64], "axes": [1], "desc": "2D Axis 1"},
+        {"shape": [128, 64], "axes": [0, 1], "desc": "2D Full"},
+        {"shape": [16, 32, 32], "axes": [0, 1, 2], "desc": "3D Full"},
     ]
 
     for sc in scenarios:
         print(f"\n--- {sc['desc']} ---")
         for dtype in ["float64", "float32"]:
-            run_cufft_serial_test("Gen", sc["shape"], dtype, axes=sc["axes"], is_r2c=False, is_inplace=False)
-            run_cufft_serial_test("Gen", sc["shape"], dtype, axes=sc["axes"], is_r2c=True, is_inplace=False)
-            run_cufft_serial_test("Gen", sc["shape"], dtype, axes=sc["axes"], is_r2c=True, is_inplace=False)
-            if (len(sc["shape"])-1) in sc["axes"]:
-                run_cufft_serial_test("Gen", sc["shape"], dtype, axes=sc["axes"], is_r2c=True, is_inplace=True)
+            run_cufft_serial_test(
+                "Gen",
+                sc["shape"],
+                dtype,
+                axes=sc["axes"],
+                is_r2c=False,
+                is_inplace=False,
+            )
+            run_cufft_serial_test(
+                "Gen",
+                sc["shape"],
+                dtype,
+                axes=sc["axes"],
+                is_r2c=True,
+                is_inplace=False,
+            )
+            run_cufft_serial_test(
+                "Gen",
+                sc["shape"],
+                dtype,
+                axes=sc["axes"],
+                is_r2c=True,
+                is_inplace=False,
+            )
+            if (len(sc["shape"]) - 1) in sc["axes"]:
+                run_cufft_serial_test(
+                    "Gen",
+                    sc["shape"],
+                    dtype,
+                    axes=sc["axes"],
+                    is_r2c=True,
+                    is_inplace=True,
+                )
 
-    print(f"\n{'='*60}\nSUMMARY: Total {TOTAL_TESTS} | Passed {PASSED_TESTS} | Failed {len(FAILED_TESTS)}")
-    if FAILED_TESTS: sys.exit(1)
+    print(
+        f"\n{'='*60}\nSUMMARY: Total {TOTAL_TESTS} | Passed {PASSED_TESTS} | Failed {len(FAILED_TESTS)}"
+    )
+    if FAILED_TESTS:
+        sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

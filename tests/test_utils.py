@@ -9,6 +9,7 @@ except ImportError:
     HAS_CUPY = False
     cp = None
 
+
 # Printing Helpers (MPI Aware)
 def print_header(backend_name, comm=None):
     """
@@ -29,6 +30,7 @@ def print_header(backend_name, comm=None):
         print(f"========================================\n")
         sys.stdout.flush()
 
+
 def print_config(ndim, shape, rank=0):
     """Prints a configuration separator line."""
     if rank == 0:
@@ -36,6 +38,7 @@ def print_config(ndim, shape, rank=0):
         print(f"Config: {ndim}D | Shape: {list(shape)}")
         print(f"----------------------------------------")
         sys.stdout.flush()
+
 
 def print_test_start(test_name, dtype, rank=0):
     """
@@ -46,6 +49,7 @@ def print_test_start(test_name, dtype, rank=0):
         # Truncate or pad dtype to keep alignment
         print(f"  {test_name:<45} {dtype:<10} ...", end=" ")
         sys.stdout.flush()
+
 
 def print_test_result(diff, tol=1e-4, rank=0, error=None):
     """
@@ -61,11 +65,13 @@ def print_test_result(diff, tol=1e-4, rank=0, error=None):
             print(f"FAILED (Diff: {diff:.2e})")
         sys.stdout.flush()
 
+
 def print_skipped(reason, rank=0):
     """Prints a SKIPPED status."""
     if rank == 0:
         print(f"SKIPPED ({reason})")
         sys.stdout.flush()
+
 
 # Type Helpers
 def get_c2c_dtype_str(real_dtype_str):
@@ -77,12 +83,13 @@ def get_c2c_dtype_str(real_dtype_str):
         return "complex128"
     elif real_dtype_str == "float32":
         return "complex64"
-    elif real_dtype_str == "complex128": # Already complex
+    elif real_dtype_str == "complex128":  # Already complex
         return "complex128"
     elif real_dtype_str == "complex64":  # Already complex
         return "complex64"
     else:
         raise ValueError(f"Unknown precision: {real_dtype_str}")
+
 
 def get_numpy_types(dtype_str):
     """
@@ -95,6 +102,7 @@ def get_numpy_types(dtype_str):
         return np.float64, np.complex128
     else:
         raise ValueError(f"Unsupported dtype: {dtype_str}")
+
 
 def get_cupy_types(dtype_str):
     """
@@ -110,6 +118,7 @@ def get_cupy_types(dtype_str):
         return cp.float64, cp.complex128
     else:
         raise ValueError(f"Unsupported dtype: {dtype_str}")
+
 
 # Data Generation
 def generate_data(shape, dtype, start_indices=None, use_gpu=False):
@@ -145,31 +154,34 @@ def generate_data(shape, dtype, start_indices=None, use_gpu=False):
         ranges.append(xp.arange(start, start + length))
 
     # Use the selected backend (np or cp) for meshgrid
-    grids = xp.meshgrid(*ranges, indexing='ij')
+    grids = xp.meshgrid(*ranges, indexing="ij")
 
     data = xp.zeros(shape, dtype=dtype)
 
     # Check if complex using dtype kind to be safe across backends
-    is_complex = np.dtype(dtype).kind == 'c'
+    is_complex = np.dtype(dtype).kind == "c"
 
     # Create a pattern: sin(x) + cos(y) + sin(z)...
     # Complex: (sin(x) + i*cos(x)) + ...
     if is_complex:
         # Base wave on 1st dimension
-        data += (xp.sin(grids[0]) + 1j * xp.cos(grids[0]))
+        data += xp.sin(grids[0]) + 1j * xp.cos(grids[0])
 
         # Add waves from other dimensions to make it fully 3D/ND
         if len(grids) > 1:
-            data += (xp.cos(grids[1]) + 1j * xp.sin(grids[1]))
+            data += xp.cos(grids[1]) + 1j * xp.sin(grids[1])
         if len(grids) > 2:
-            data += (xp.sin(grids[2]) + 1j * xp.cos(grids[2]))
+            data += xp.sin(grids[2]) + 1j * xp.cos(grids[2])
         if len(grids) > 3:
-            data += (xp.cos(grids[3]) + 1j * xp.sin(grids[3]))
+            data += xp.cos(grids[3]) + 1j * xp.sin(grids[3])
 
-    else: # Real
+    else:  # Real
         data += xp.sin(grids[0])
-        if len(grids) > 1: data += xp.cos(grids[1])
-        if len(grids) > 2: data += xp.sin(grids[2])
-        if len(grids) > 3: data += xp.cos(grids[3])
+        if len(grids) > 1:
+            data += xp.cos(grids[1])
+        if len(grids) > 2:
+            data += xp.sin(grids[2])
+        if len(grids) > 3:
+            data += xp.cos(grids[3])
 
     return data
