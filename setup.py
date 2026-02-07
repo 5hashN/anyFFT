@@ -38,11 +38,49 @@ else:
     try:
         import mpi4py
 
-        ENABLE_MPI = True
+        # Add mpi4py's OWN include dir
         mpi_include_dirs.append(mpi4py.get_include())
-        # We assume standard linker paths will find 'mpi' if not specified
-        mpi_libraries.append("mpi")
-        print("MPI_HOME not found. Falling back to mpi4py detection.")
+
+        # Build list of candidate paths
+        candidate_paths = []
+        config = mpi4py.get_config()
+        candidate_paths.extend(config.get("include_dirs", []))
+
+        # Add Homebrew and standard paths explicitly (Crucial for Mac)
+        candidate_paths.extend([
+            "/opt/homebrew/include",  # Apple Silicon Homebrew
+            "/usr/local/include",     # Intel Homebrew / Standard
+            "/usr/include"            # System Standard
+        ])
+
+        # Strictly search for mpi.h
+        found_mpi_h = False
+        found_path = None
+        for p in candidate_paths:
+            if os.path.exists(os.path.join(p, "mpi.h")):
+                print(f"Found system 'mpi.h' at: {p}")
+                mpi_include_dirs.append(p)
+                found_path = p
+                found_mpi_h = True
+                break
+
+        if found_mpi_h:
+            ENABLE_MPI = True
+            mpi_libraries.append("mpi")
+
+            # If header is in /opt/homebrew/include, we MUST add /opt/homebrew/lib
+            if found_path and "include" in found_path:
+                lib_candidate = found_path.replace("include", "lib")
+                if os.path.isdir(lib_candidate):
+                    mpi_lib_dirs.append(lib_candidate)
+                    print(f"Inferred MPI lib path: {lib_candidate}")
+
+            print("MPI headers found. Enabling MPI support.")
+        else:
+            print("NOTICE: mpi4py found, but system 'mpi.h' could not be located.")
+            print("        Checked: " + ", ".join(candidate_paths))
+            print("        Skipping MPI backend. Set MPI_HOME to enable.")
+
     except ImportError:
         print("mpi4py not found. Skipping MPI backends.")
 
@@ -59,7 +97,7 @@ if not FFTW_ROOT and sys.platform == "darwin":
         if res.returncode == 0:
             FFTW_ROOT = res.stdout.strip()
     except FileNotFoundError:
-        pass # brew not found
+        pass  # brew not found
 
 # Fallback defaults
 if not FFTW_ROOT:
@@ -113,20 +151,12 @@ if HAS_CUDA and ENABLE_MPI:
 # Safety Check
 if not HAS_FFTW and not HAS_CUDA:
     print("CRITICAL ERROR: Neither FFTW nor CUDA was found.")
-    print("Please install FFTW (libfftw3-dev) or a CUDA Toolkit.")
+    print("                Please install FFTW (libfftw3-dev) or a CUDA Toolkit.")
     sys.exit(1)
 
 # Compiler & Linker Flags
 # Flags for the C++ Compiler
 extra_compile_args = ["-O3", "-Wall", "-std=c++17"]
-
-# Enable Hardware Vectorization
-if sys.platform == "darwin":
-    # Apple Silicon (M1/M2/M3) optimizations
-    extra_compile_args.append("-mcpu=native")
-else:
-    # Linux/Windows (Intel/AMD) optimizations (AVX, AVX2, FMA)
-    extra_compile_args.append("-march=native")
 
 # Flags for the Linker
 extra_link_args = []
@@ -273,7 +303,9 @@ if HAS_CUDA:
 
                         cmd = [
                             NVCC_PATH, "-c", source, "-o", obj_path,
-                            "-std=c++17", "-Xcompiler", "-fPIC", "-arch=native",
+                            "-std=c++17",
+                            "-Xcompiler", "-fPIC",
+                            "-arch=native"
                         ]
 
                         for macro, val in ext.define_macros:

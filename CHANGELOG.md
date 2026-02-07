@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.7] - 2026-02-07
+
+- fixed github actions workflow for fftw serial module
+- updated test script to handle installed backends
+- fixed `setup.py` to compile with `nvcc`
+
 ## [0.1.6] - 2026-02-07
 
 - added github workflows for testing

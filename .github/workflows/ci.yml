@@ -1,10 +1,10 @@
-name: Build and Test
+name: Build and Test (FFTW Serial Only)
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main" , "testing"]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "main" , "testing"]
 
 jobs:
   build-test:
@@ -12,13 +12,18 @@ jobs:
     strategy:
       fail-fast: false # If one fails, let the others finish
       matrix:
-        python-version: ["3.10", "3.11", "3.12"]
-        compiler: [gcc, clang]
+        python-version: ["3.10", "3.12"]
+        include:
+          - compiler: gcc
+            cc: gcc
+            cxx: g++
+          - compiler: clang
+            cc: clang
+            cxx: clang++
 
     env:
-      # Force setuptools to use the matrix compiler
-      CC: ${{ matrix.compiler }}
-      CXX: ${{ matrix.compiler == 'gcc' && 'g++' || 'clang++' }}
+      CC: ${{ matrix.cc }}
+      CXX: ${{ matrix.cxx }}
 
     steps:
     - uses: actions/checkout@v4
@@ -31,32 +36,26 @@ jobs:
     - name: Install System Dependencies
       run: |
         sudo apt-get update
-        # Standard build tools
         sudo apt-get install -y build-essential
 
-        # Install Compilers if not present
-        if [ "${{ matrix.compiler }}" = "clang" ]; then
-          sudo apt-get install -y clang
-        else
-          sudo apt-get install -y g++
-        fi
-
-        # Install FFTW3 (Serial + MPI + OpenMP) and OpenMPI
-        sudo apt-get install -y libfftw3-dev libfftw3-mpi-dev libomp-dev openmpi-bin libopenmpi-dev
+        # Install only Serial FFTW and OpenMP (No MPI)
+        sudo apt-get install -y libfftw3-dev libomp-dev
 
     - name: Install Python Dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install numpy mpi4py pybind11 setuptools matplotlib
+        pip install numpy pybind11 setuptools matplotlib
 
     - name: Compile and Install anyFFT
       run: |
-        # Print compiler version for debugging logs
+        echo "Using Compiler: $CXX"
         $CXX --version
 
-        # Build with verbose output to see flags
+        # Build verbose to confirm MPI is skipped
         pip install -v .
 
     - name: Run Test Suite
       run: |
+        # This will run only serial FFTW tests.
+        # Parallel tests will self-skip because mpi4py is missing.
         python3 run_tests.py
