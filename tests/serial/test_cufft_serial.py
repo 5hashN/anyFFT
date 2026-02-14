@@ -45,7 +45,7 @@ def setup_r2c_inplace_buffer_gpu(shape, dtype_str, axes=None):
 
 
 def run_cufft_serial_test(
-    label, shape, dtype_str, axes=None, ndim=None, is_r2c=False, is_inplace=False
+    label, shape, dtype_str, axes=None, is_r2c=False, is_inplace=False
 ):
     """
     Unified CuPy test runner. Records failures to global list.
@@ -65,7 +65,7 @@ def run_cufft_serial_test(
         _, complex_dtype_cp = test_utils.get_cupy_types(dtype_str)
 
     place_str = "In-Place" if is_inplace else "Out-Place"
-    config_str = f"axes={axes}" if axes else f"ndim={ndim}"
+    config_str = f"axes={axes}"
 
     test_id = f"{label} {test_type} {place_str} | {config_str} | {shape} | {dtype_str}"
     test_utils.print_test_start(
@@ -102,14 +102,11 @@ def run_cufft_serial_test(
                 out_buffer = cp.zeros(out_shape, dtype=complex_dtype_cp)
 
         fft = FFT(
-            ndim=len(shape),
-            shape=tuple(shape),
-            axes=tuple(axes) if axes else None,
-            input=in_buffer,
-            output=out_buffer,
-            dtype=full_dtype_str,
-            backend=BACKEND,
+            shape=tuple(shape), axes=tuple(axes),
+            input=in_buffer, output=out_buffer,
+            dtype=full_dtype_str, backend=BACKEND,
         )
+
         fft.forward(in_buffer, out_buffer)
 
         if is_r2c:
@@ -147,68 +144,37 @@ def run_cufft_serial_test(
 
 def main():
     test_utils.print_header(BACKEND)
-    # Hardcoded Suite
-    print(f"\n{'='*60}\n  HARDCODED \n{'='*60}")
-    for ndim, shape in [(1, [2048]), (2, [1024, 1024]), (3, [64, 64, 64])]:
-        test_utils.print_config(ndim, shape)
-        for dtype in ["float64", "float32"]:
-            for r2c in [False, True]:
-                for inplace in [False, True]:
-                    run_cufft_serial_test(
-                        "HC",
-                        shape,
-                        dtype,
-                        axes=None,
-                        ndim=ndim,
-                        is_r2c=r2c,
-                        is_inplace=inplace,
-                    )
 
-    # Generic Suite
     print(f"\n{'='*60}\n  GENERIC \n{'='*60}")
     scenarios = [
-        {"shape": [1024], "axes": [0], "desc": "1D Full"},
+        {"shape": [1024], "axes": [], "desc": "1D Full"},
         {"shape": [128, 64], "axes": [0], "desc": "2D Axis 0"},
         {"shape": [128, 64], "axes": [1], "desc": "2D Axis 1"},
-        {"shape": [128, 64], "axes": [0, 1], "desc": "2D Full"},
+        {"shape": [128, 64], "axes": [], "desc": "2D Full"},
+        {"shape": [16, 32, 32], "axes": [0, 1], "desc": "3D Full"},
         {"shape": [16, 32, 32], "axes": [0, 1, 2], "desc": "3D Full"},
+        {"shape": [16, 32, 32], "axes": [], "desc": "3D Full"},
     ]
 
     for sc in scenarios:
         print(f"\n--- {sc['desc']} ---")
         for dtype in ["float64", "float32"]:
             run_cufft_serial_test(
-                "Gen",
-                sc["shape"],
-                dtype,
-                axes=sc["axes"],
-                is_r2c=False,
-                is_inplace=False,
+                "Gen", sc["shape"], dtype, axes=sc["axes"],
+                is_r2c=False, is_inplace=False
             )
             run_cufft_serial_test(
-                "Gen",
-                sc["shape"],
-                dtype,
-                axes=sc["axes"],
-                is_r2c=True,
-                is_inplace=False,
+                "Gen", sc["shape"], dtype, axes=sc["axes"],
+                is_r2c=False, is_inplace=True
             )
             run_cufft_serial_test(
-                "Gen",
-                sc["shape"],
-                dtype,
-                axes=sc["axes"],
-                is_r2c=True,
-                is_inplace=False,
+                "Gen", sc["shape"], dtype, axes=sc["axes"],
+                is_r2c=True, is_inplace=False
             )
-            if (len(sc["shape"]) - 1) in sc["axes"]:
+            if not sc["axes"] or ((len(sc["shape"]) - 1) in sc["axes"]):
                 run_cufft_serial_test(
-                    "Gen",
-                    sc["shape"],
-                    dtype,
-                    axes=sc["axes"],
-                    is_r2c=True,
-                    is_inplace=True,
+                    "Gen", sc["shape"], dtype, axes=sc["axes"],
+                    is_r2c=True, is_inplace=True
                 )
 
     print(

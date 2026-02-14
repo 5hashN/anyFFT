@@ -5,10 +5,6 @@ All Rights Reserved.
 Demonstration only. No license granted.
 */
 
-#include <pybind11/pybind11.h>
-#include <pybind11/numpy.h>
-#include <pybind11/stl.h>
-
 #ifdef ENABLE_FFTW
 #include "anyfft/fftw_serial.hpp"
 #endif
@@ -25,30 +21,6 @@ Demonstration only. No license granted.
 #include "anyfft/cufft_mpi.cuh"
 #endif
 
-namespace py = pybind11;
-using namespace pybind11::literals;
-
-// Helper Subclasses
-#ifdef ENABLE_FFTW
-class FFTW_SERIAL_GENERIC : public FFTW_SERIAL {
-public:
-    using FFTW_SERIAL::FFTW_SERIAL;
-};
-#endif
-
-#ifdef ENABLE_FFTW_MPI
-class FFTW_MPI_GENERIC : public FFTW_MPI {
-public:
-    using FFTW_MPI::FFTW_MPI;
-};
-#endif
-
-#ifdef ENABLE_CUDA
-class CUFFT_SERIAL_GENERIC : public CUFFT_SERIAL {
-public:
-    using CUFFT_SERIAL::CUFFT_SERIAL;
-};
-#endif
 
 // Module Definition
 PYBIND11_MODULE(_core, m) {
@@ -95,81 +67,60 @@ std::string doc_str = "anyFFT Core Module\n"
     m.attr("FFTW_PATIENT") = FFTW_PATIENT;
     m.attr("FFTW_EXHAUSTIVE") = FFTW_EXHAUSTIVE;
 
+    // Guru Interface
     py::class_<FFTW_SERIAL>(m, "fftw_serial")
-        .def(py::init([](int ndim, const std::vector<int>& shape, py::array input, py::array output,
-                         const std::string& dtype, int n_threads, unsigned flags) {
-            return new FFTW_SERIAL(ndim, shape, {}, input, output, dtype, n_threads, flags);
-        }),
-            "ndim"_a, "shape"_a, "input"_a, "output"_a, "dtype"_a, "n_threads"_a = 1, "flags"_a = FFTW_ESTIMATE,
+        .def(py::init<const std::vector<int>&, const std::vector<int>&, py::array, py::array, const std::string&, int, unsigned>(),
+            "shape"_a, "axes"_a, "input"_a, "output"_a, "dtype"_a, "n_threads"_a = 1, "flags"_a = FFTW_ESTIMATE,
             "FFTW backend. Supports:\n"
             " - Real-to-Complex (float64/32)\n"
             " - Complex-to-Complex (complex128/64)\n"
-            " - In-Place transforms (if input is output)")
+            " - In-Place & Out-of-Place\n"
+            " - Arbitrary axes and strides")
         .def("forward", &FFTW_SERIAL::forward)
         .def("backward", &FFTW_SERIAL::backward);
-
-    // Guru Interface
-    py::class_<FFTW_SERIAL_GENERIC>(m, "fftw_serial_generic")
-        .def(py::init([](const std::vector<int>& shape, const std::vector<int>& axes, py::array input, py::array output,
-                         const std::string& dtype, int n_threads, unsigned flags) {
-            return new FFTW_SERIAL_GENERIC(0, shape, axes, input, output, dtype, n_threads, flags);
-        }),
-            "shape"_a, "axes"_a, "input"_a, "output"_a, "dtype"_a, "n_threads"_a = 1, "flags"_a = FFTW_ESTIMATE,
-            "Generic FFTW backend (Guru)")
-        .def("forward", &FFTW_SERIAL_GENERIC::forward)
-        .def("backward", &FFTW_SERIAL_GENERIC::backward);
 #endif
 
 #ifdef ENABLE_FFTW_MPI
     py::class_<FFTW_MPI>(m, "fftw_mpi")
-        .def(py::init<int, const std::vector<int>&, py::array, py::array, int, const std::string&>(),
-            "ndim"_a, "global_shape"_a, "input"_a, "output"_a, "comm"_a, "dtype"_a,
-            "FFTW MPI Backend. Supports:\n"
+        .def(py::init<const std::vector<int>&, py::array, py::array, const std::string&, int>(),
+            "global_shape"_a, "input"_a, "output"_a, "dtype"_a, "comm"_a,
+            "FFTW-MPI Backend. Supports:\n"
             " - Real-to-Complex (In-Place ONLY)\n"
             " - Complex-to-Complex (In-Place & Out-of-Place)\n"
             " - 2D and 3D Slab Decomposition")
         .def("forward", &FFTW_MPI::forward)
         .def("backward", &FFTW_MPI::backward)
         .def_static("get_local_info", &FFTW_MPI::get_local_info,
-            "ndim"_a, "global_shape"_a, "comm"_a, "r2c"_a,
+            "global_shape"_a, "comm"_a, "r2c"_a,
             "Returns (in_shape, in_start, out_shape, out_start). for slab decomposition.");
 #endif
 
 #ifdef ENABLE_CUDA
+    // PlanMany Interface
     py::class_<CUFFT_SERIAL>(m, "cufft_serial")
-        .def(py::init([](int ndim, const std::vector<int>& shape, const std::string& dtype) {
-            return new CUFFT_SERIAL(ndim, shape, {}, dtype);
-        }),
-            "ndim"_a, "shape"_a, "dtype"_a,
+        .def(py::init<const std::vector<int>&, const std::vector<int>&, const std::string&>(),
+            "shape"_a, "axes"_a, "dtype"_a,
             "cuFFT backend. Supports:\n"
             " - Real-to-Complex (float64/32)\n"
             " - Complex-to-Complex (complex128/64)\n"
-            " - Plans are cached internally")
-        .def("forward", &CUFFT_SERIAL::forward)
-        .def("backward", &CUFFT_SERIAL::backward);
-
-    py::class_<CUFFT_SERIAL_GENERIC>(m, "cufft_serial_generic")
-        .def(py::init([](const std::vector<int>& shape, const std::vector<int>& axes, const std::string& dtype) {
-            return new CUFFT_SERIAL_GENERIC(0, shape, axes, dtype);
-        }),
-            "shape"_a, "axes"_a, "dtype"_a,
-            "Generic cuFFT backend (PlanMany)")
+            " - In-Place & Out-of-Place\n"
+            " - Contiguous axes and strides")
         .def("forward", &CUFFT_SERIAL_GENERIC::forward)
         .def("backward", &CUFFT_SERIAL_GENERIC::backward);
 #endif
 
 #ifdef ENABLE_CUDA_MPI
     py::class_<CUFFT_MPI>(m, "cufft_mpi")
-        .def(py::init<int, const std::vector<int>&, int, const std::string&>(),
-            "ndim"_a, "global_shape"_a, "comm"_a, "dtype"_a,
+        .def(py::init<const std::vector<int>&, const std::vector<int>&, py::object, py::object, const std::string&, int>(),
+            "global_shape"_a, "grid"_a, "input"_a, "output"_a, "dtype"_a, "comm"_a,
             "cuFFTMp Backend. Supports:\n"
-            " - Real-to-Complex (In-Place ONLY)\n"
+            " - Real-to-Complex (In-Place & Out-of-Place)\n"
             " - Complex-to-Complex (In-Place & Out-of-Place)\n"
-            " - 2D and 3D Slab Decomposition")
+            " - Slab (1D) and Pencil (2D) Decomposition via 'grid' argument")
         .def("forward", &CUFFT_MPI::forward)
         .def("backward", &CUFFT_MPI::backward)
         .def_static("get_local_info", &CUFFT_MPI::get_local_info,
-            "ndim"_a, "global_shape"_a, "comm"_a, "r2c"_a,
-            "Returns (in_shape, in_start, out_shape, out_start) for slab decomposition.");
+            "global_shape"_a, "grid"_a, "comm"_a, "r2c"_a,
+            "Returns (in_shape, in_start, out_shape, out_start) for slab/pencil decomposition.");
 #endif
 }

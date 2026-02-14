@@ -238,7 +238,7 @@ if HAS_FFTW:
             extra_link_args.extend(omp_flags)
 
         # Define the macro for C++ code
-        define_macros.append(("ENABLE_OPENMP", None))
+        define_macros.append(("ENABLE_FFTW_OMP", None))
 
     if ENABLE_MPI:
         print("Enabling CPU MPI support (FFTW-MPI).")

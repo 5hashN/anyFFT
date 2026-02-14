@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.8] - 2026-02-15
+
+- converted all modules to be as generic as possible
+- added checks to the python-facing factory function
+- general overall cleanup
+
 ## [0.1.7] - 2026-02-07
 
 - fixed github actions workflow for fftw serial module

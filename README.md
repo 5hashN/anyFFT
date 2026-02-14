@@ -1,8 +1,8 @@
 # anyFFT
 
-![Build Status](https://github.com/5hashN/anyFFT/actions/workflows/ci.yml/badge.svg)
-![Language](https://img.shields.io/badge/language-C%2B%2B%20%7C%20Python-blue)
-![Backend](https://img.shields.io/badge/backends-FFTW3%20%7C%20CUDA%20%7C%20MPI-green)
+![CI](https://github.com/5hashN/anyFFT/actions/workflows/ci.yml/badge.svg)
+![Language](https://img.shields.io/badge/language-C%2B%2B%20%7C%20CUDA%20%7C%20Python-blue)
+![Backend](https://img.shields.io/badge/backends-FFTW3%20%7C%20CuFFT%20%7C%20MPI-green)
 
 anyFFT is a high-performance Python wrapper for standard FFT libraries, providing a unified interface for Serial and Parallel (MPI) transforms on both CPUs and GPUs. It avoids Python overhead by using `pybind11` for direct memory access and supports distributed memory (MPI) out of the box to expose C++ speed with Python convenience.
 
@@ -15,8 +15,8 @@ anyFFT is a high-performance Python wrapper for standard FFT libraries, providin
       │
 [Dispatcher]
       │
-      ├──────── CPU: FFTW3 (Serial / MPI)
-      └──────── GPU: cuFFT (Serial / MPI)
+      ├──────── CPU: FFTW3 / FFTW3-MPI
+      └──────── GPU: cuFFT / cuFFTMp
 ```
 
 ## Features
@@ -103,7 +103,7 @@ out_data = np.zeros(out_shape, dtype=np.complex128)
 
 # Initialize FFTW plan
 # Note: We pass input/output arrays to optimize the plan for these specific memory layouts
-fft = FFT(ndim=2, shape=shape, dtype="float64", backend="fftw",
+fft = FFT(shape=shape, dtype="float64", backend="fftw",
           input=in_data, output=out_data)
 
 # Execute
@@ -122,7 +122,7 @@ data = cp.random.rand(*shape).astype(cp.float64)
 out = cp.zeros((128, 65), dtype=cp.complex128)
 
 # Initialize cuFFT plan
-fft = FFT(ndim=2, shape=shape, dtype="float64", backend="cufft")
+fft = FFT(shape=shape, dtype="float64", backend="cufft")
 
 # Execute on GPU
 fft.forward(data, out)
@@ -144,7 +144,7 @@ from anyFFT import FFT, FFTW_MEASURE, FFTW_PATIENT
 #        FFTW_MEASURE - Slower setup, faster execution. (Overwrites input during plan!)
 #        FFTW_PATIENT - Very slow setup, maximum execution speed.
 # n_threads: Number of OMP threads to use (requires library compiled with OpenMP).
-fft = FFT(ndim=3, shape=(128, 128, 128), dtype="complex128", backend="fftw",
+fft = FFT(shape=(128, 128, 128), dtype="complex128", backend="fftw",
           input=in_data, output=out_data,
           n_threads=8, flags=FFTW_MEASURE)
 ```

@@ -15,6 +15,8 @@ class CUFFT_MPI : public FFTBase {
 
 public:
     CUFFT_MPI(int ndim, const std::vector<int>& shape,
+              const std::vector<int>& proc_grid,
+              py::object in, py::object out,
               int comm_handle, const std::string& dtype);
 
     ~CUFFT_MPI();
@@ -23,5 +25,7 @@ public:
     void backward(py::object in, py::object out) override;
 
     static std::tuple<std::vector<long>, std::vector<long>, std::vector<long>, std::vector<long>>
-    get_local_info(int ndim, const std::vector<int>& global_shape, int comm_handle, bool r2c);
+    get_local_info(int ndim, const std::vector<int>& global_shape,
+                   const std::vector<int>& proc_grid,
+                   int comm_handle, bool r2c);
 };

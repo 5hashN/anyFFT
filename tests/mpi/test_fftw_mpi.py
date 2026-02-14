@@ -24,7 +24,7 @@ def test_r2c_out_of_place(dtype_str, global_shape, ndim):
 
     try:
         in_shape, in_start, out_shape, out_start = anyFFT.fftw_mpi.get_local_info(
-            ndim, global_shape, comm.py2f(), True
+            global_shape, comm.py2f(), True
         )
     except Exception as e:
         test_utils.print_skipped(str(e), rank)
@@ -44,13 +44,8 @@ def test_r2c_out_of_place(dtype_str, global_shape, ndim):
     # Exec
     try:
         fft = FFT(
-            ndim,
-            global_shape,
-            input=local_real,
-            output=local_complex,
-            comm=comm,
-            dtype=dtype_str,
-            backend=BACKEND,
+            shape=global_shape, input=local_real, output=local_complex,
+            comm=comm, dtype=dtype_str, backend=BACKEND
         )
         fft.forward(local_real, local_complex)
         fft.backward(local_complex, local_back)
@@ -69,7 +64,7 @@ def test_r2c_in_place(dtype_str, global_shape, ndim):
     try:
         # Get layout. 'out_shape' is the padded complex size.
         in_shape, in_start, out_shape, out_start = anyFFT.fftw_mpi.get_local_info(
-            ndim, global_shape, comm.py2f(), True
+            global_shape, comm.py2f(), True
         )
     except Exception as e:
         test_utils.print_skipped(str(e), rank)
@@ -92,13 +87,8 @@ def test_r2c_in_place(dtype_str, global_shape, ndim):
 
     try:
         fft = FFT(
-            ndim,
-            global_shape,
-            input=data_buffer,
-            output=data_buffer,
-            comm=comm,
-            dtype=dtype_str,
-            backend=BACKEND,
+            shape=global_shape, input=data_buffer, output=data_buffer,
+            comm=comm, dtype=dtype_str, backend=BACKEND
         )
         fft.forward(data_buffer, data_buffer)
         fft.backward(data_buffer, data_buffer)
@@ -118,7 +108,7 @@ def test_c2c_out_of_place(real_dtype_str, global_shape, ndim):
 
     try:
         in_shape, in_start, _, _ = anyFFT.fftw_mpi.get_local_info(
-            ndim, global_shape, comm.py2f(), False
+            global_shape, comm.py2f(), False
         )
     except Exception as e:
         test_utils.print_skipped(str(e), rank)
@@ -135,13 +125,8 @@ def test_c2c_out_of_place(real_dtype_str, global_shape, ndim):
 
     try:
         fft = FFT(
-            ndim,
-            global_shape,
-            input=local_in,
-            output=local_out,
-            comm=comm,
-            dtype=c_dtype_str,
-            backend=BACKEND,
+            shape=global_shape, input=local_in, output=local_out,
+            comm=comm, dtype=c_dtype_str, backend=BACKEND
         )
         fft.forward(local_in, local_out)
         fft.backward(local_out, local_back)
@@ -161,7 +146,7 @@ def test_c2c_in_place(real_dtype_str, global_shape, ndim):
 
     try:
         in_shape, in_start, _, _ = anyFFT.fftw_mpi.get_local_info(
-            ndim, global_shape, comm.py2f(), False
+            global_shape, comm.py2f(), False
         )
     except Exception as e:
         test_utils.print_skipped(str(e), rank)
@@ -175,13 +160,8 @@ def test_c2c_in_place(real_dtype_str, global_shape, ndim):
 
     try:
         fft = FFT(
-            ndim,
-            global_shape,
-            input=data_buffer,
-            output=data_buffer,
-            comm=comm,
-            dtype=c_dtype_str,
-            backend=BACKEND,
+            shape=global_shape, input=data_buffer, output=data_buffer,
+            comm=comm, dtype=c_dtype_str, backend=BACKEND
         )
         fft.forward(data_buffer, data_buffer)
         fft.backward(data_buffer, data_buffer)
@@ -195,12 +175,13 @@ def test_c2c_in_place(real_dtype_str, global_shape, ndim):
 
 def main():
     test_utils.print_header(BACKEND, comm)
-    precisions = ["float64", "float32"]
-    configurations = [(2, [1024, 1024]), (3, [128, 128, 128])]
 
-    for ndim, shape in configurations:
+    configs = [(2, [1024, 1024]), (3, [128, 128, 128])]
+    dtypes = ["float64", "float32"]
+
+    for ndim, shape in configs:
         test_utils.print_config(ndim, shape, rank)
-        for dtype in precisions:
+        for dtype in dtypes:
             if rank == 0:
                 print(f"Precision: {dtype}")
             test_r2c_out_of_place(dtype, shape, ndim)

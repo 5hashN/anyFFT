@@ -14,8 +14,7 @@ private:
     std::unique_ptr<FFTBase> impl_;
 
 public:
-    FFTW_SERIAL(int ndim,
-                const std::vector<int>& shape,
+    FFTW_SERIAL(const std::vector<int>& shape,
                 const std::vector<int>& axes,
                 py::array input,
                 py::array output,

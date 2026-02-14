@@ -168,10 +168,17 @@ public:
         if (plan_valid_) cufftDestroy(plan_);
     }
 
+    bool check_contiguous_axes() {
+        if (axes_.empty()) return true;
+        for (size_t i = 0; i < axes_.size() - 1; ++i) {
+            if (axes_[i+1] != axes_[i] + 1) return false;
+        }
+        return true;
+    }
+
     void ensure_plan(py::object in, py::object out, cufftType requested_type) {
-        // Explicit check for Rank > 3
-        if (ndim_ > 3) {
-            throw std::runtime_error("cuFFT Error: Rank > 3 is not supported (received rank " + std::to_string(ndim_) + ")");
+        if (!check_contiguous_axes()) {
+            throw std::runtime_error("cuFFT Generic: Transform axes must be contiguous indices (e.g., [0,1] or [1,2]). Split axes (e.g. [0,2]) are not supported.");
         }
 
         PlanConfig new_config;
@@ -190,88 +197,53 @@ public:
             total_transform_size *= shape_[ax];
         }
         new_config.logical_size = total_transform_size;
+        int rank = new_config.n.size();
 
         int full_rank = shape_.size();
-        bool is_contiguous_suffix = is_contiguous_axes(full_rank, axes_);
 
-        if (is_contiguous_suffix) {
+        bool is_outer_batch = (axes_.back() == full_rank - 1);
+
+        bool is_inner_batch = (axes_.front() == 0);
+
+        if (is_outer_batch) {
+            // Outer Batching (Batch dims ... Transform dims)
             new_config.batch = 1;
-            for (int i = 0; i < full_rank - ndim_; ++i) new_config.batch *= shape_[i];
+            for(int i=0; i < axes_.front(); ++i) new_config.batch *= shape_[i];
 
-            int last_dim_idx = axes_.back();
-            new_config.istride = in_strides[last_dim_idx];
-            new_config.ostride = out_strides[last_dim_idx];
+            // Transform Strides: The stride of the LAST axis
+            new_config.istride = in_strides.back();
+            new_config.ostride = out_strides.back();
 
-            new_config.inembed = new_config.n;
-            new_config.onembed = new_config.n;
-
-            if (ndim_ > 1) {
-                for (int i = ndim_ - 1; i > 0; --i) {
-                    int dim_idx = axes_[i];
-                    int prev_dim_idx = axes_[i-1];
-                    // inembed[i] gets the physical size of dim i
-                    new_config.inembed[i] = in_strides[prev_dim_idx] / in_strides[dim_idx];
-                    new_config.onembed[i] = out_strides[prev_dim_idx] / out_strides[dim_idx];
-                }
-            }
-
+            // Distance: The stride of the LAST BATCH axis (axis immediately before transform)
             if (new_config.batch > 1) {
-                int batch_dim = full_rank - ndim_ - 1;
-                new_config.idist = in_strides[batch_dim];
-                new_config.odist = out_strides[batch_dim];
+                new_config.idist = in_strides[axes_.front() - 1];
+                new_config.odist = out_strides[axes_.front() - 1];
             } else {
-                 // Batch=1: Set safe defaults
-                if (requested_type == CUFFT_R2C || requested_type == CUFFT_D2Z) {
-                    // R2C
-                    if (new_config.is_inplace) {
-                        // For Batch=1, idist/odist are ignored by cuFFT,
-                        // but we calculate them correctly for consistency.
-                        int complex_size = total_transform_size / new_config.n.back() * (new_config.n.back()/2 + 1);
-                        new_config.idist = complex_size * 2;
-                        new_config.odist = complex_size;
-                    } else {
-                        new_config.idist = total_transform_size;
-                        new_config.odist = total_transform_size / new_config.n.back() * (new_config.n.back()/2 + 1);
-                    }
-                } else {
-                    // C2R
-                    if (new_config.is_inplace) {
-                        int complex_size = total_transform_size / new_config.n.back() * (new_config.n.back()/2 + 1);
-                        new_config.idist = complex_size;
-                        new_config.odist = complex_size * 2;
-                    } else {
-                        new_config.idist = total_transform_size / new_config.n.back() * (new_config.n.back()/2 + 1);
-                        new_config.odist = total_transform_size;
-                    }
-                }
+                new_config.idist = total_transform_size;
+                new_config.odist = total_transform_size;
             }
 
-        } else if (ndim_ == 1 && axes_.size() == 1) {
-            int ax = axes_[0];
+        } else if (is_inner_batch) {
+            // Inner Batching (Transform dims ... Batch dims)
             new_config.batch = 1;
-            for(int i=0; i<full_rank; ++i) if(i != ax) new_config.batch *= shape_[i];
+            for(size_t i = axes_.back() + 1; i < full_rank; ++i) new_config.batch *= shape_[i];
 
-            new_config.istride = in_strides[ax];
-            new_config.ostride = out_strides[ax];
+            // Transform Strides: Stride of the last transform axis (which is NOT 1 here!)
+            new_config.istride = in_strides[axes_.back()];
+            new_config.ostride = out_strides[axes_.back()];
 
-            int dist_axis = -1;
-            for (int i = full_rank - 1; i >= 0; --i) {
-                if (i != ax) { dist_axis = i; break; }
-            }
-            if (dist_axis >= 0) {
-                new_config.idist = in_strides[dist_axis];
-                new_config.odist = out_strides[dist_axis];
-            }
-            new_config.inembed = new_config.n;
-            new_config.onembed = new_config.n;
+            // Distance: Stride of the FIRST batch axis (immediately after transform)
+            new_config.idist = in_strides[axes_.back() + 1];
+            new_config.odist = out_strides[axes_.back() + 1];
+
         } else {
-            // Fallback
-            new_config.batch = 1;
-            new_config.istride = 1; new_config.idist = total_transform_size;
-            new_config.ostride = 1; new_config.odist = total_transform_size;
-            new_config.inembed = new_config.n;
-            new_config.onembed = new_config.n;
+            // Middle Batching (Batch ... Transform ... Batch) - Not Supported
+            throw std::runtime_error("cuFFT Generic: Transform axes must be at the start or end of the array. Middle transforms (e.g. shape (A,B,C), axis B) with surrounding batches are not supported.");
         }
+
+        // Set Embed (Must match transform dims)
+        new_config.inembed = new_config.n;
+        new_config.onembed = new_config.n;
 
         if (!plan_valid_ ||
             new_config.n != current_config_.n ||
@@ -286,7 +258,7 @@ public:
             if (plan_valid_) cufftDestroy(plan_);
             CUFFT_CHECK(cufftCreate(&plan_));
             CUFFT_CHECK(cufftPlanMany(&plan_,
-                                      ndim_, new_config.n.data(),
+                                      rank, new_config.n.data(),
                                       new_config.inembed.data(), new_config.istride, new_config.idist,
                                       new_config.onembed.data(), new_config.ostride, new_config.odist,
                                       new_config.type, new_config.batch));
@@ -346,17 +318,35 @@ public:
     }
 };
 
-CUFFT_SERIAL::CUFFT_SERIAL(int ndim, const std::vector<int>& shape,
+CUFFT_SERIAL::CUFFT_SERIAL(const std::vector<int>& shape,
                            const std::vector<int>& axes, const std::string& dtype)
 {
-    if (!axes.empty()) {
-        impl_ = std::make_unique<CUFFT_Generic>(shape, axes, dtype);
+    bool use_hardcoded = false;
+    if (axes.empty()) {
+        use_hardcoded = true;
     } else {
-        if (dtype == "complex128" || dtype == "complex64") {
-            impl_ = std::make_unique<CUFFT_C2C_Impl>(ndim, shape, dtype);
-        } else {
-            impl_ = std::make_unique<CUFFT_R2C_Impl>(ndim, shape, dtype);
+        if (axes.size() == shape.size()) {
+            // Check if axes are [0, 1, 2...]
+            bool sorted = true;
+            std::vector<int> sorted_axes = axes;
+            std::sort(sorted_axes.begin(), sorted_axes.end());
+            for(size_t i=0; i<sorted_axes.size(); ++i) {
+                if (sorted_axes[i] != i) { sorted = false; break; }
+            }
+            if (sorted) use_hardcoded = true;
         }
+    }
+
+    int ndim = shape.size();
+
+    if (use_hardcoded) {
+        if (dtype == "complex128" || dtype == "complex64")
+            impl_ = std::make_unique<CUFFT_C2C_Impl>(ndim, shape, dtype);
+        else
+            impl_ = std::make_unique<CUFFT_R2C_Impl>(ndim, shape, dtype);
+    } else {
+        // Fallback to Generic for partial transforms or permutations
+        impl_ = std::make_unique<CUFFT_Generic>(shape, axes, dtype);
     }
 }
 

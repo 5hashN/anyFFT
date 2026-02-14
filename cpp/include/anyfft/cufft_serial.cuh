@@ -15,8 +15,7 @@ private:
     std::unique_ptr<FFTBase> impl_;
 
 public:
-    CUFFT_SERIAL(int ndim,
-                 const std::vector<int>& shape,
+    CUFFT_SERIAL(const std::vector<int>& shape,
                  const std::vector<int>& axes,
                  const std::string& dtype);
 

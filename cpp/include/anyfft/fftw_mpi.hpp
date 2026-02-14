@@ -15,14 +15,11 @@ private:
     std::unique_ptr<FFTBase> impl_;
 
 public:
-    FFTW_MPI(int ndim,
-             const std::vector<int>& global_shape,
+    FFTW_MPI(const std::vector<int>& global_shape,
              py::array input,
              py::array output,
-             int comm_handle,
-             const std::string& dtype);
-            //  int n_threads,
-            //  unsigned flags);
+             const std::string& dtype,
+             int comm_handle);
 
     void forward(py::object in, py::object out) override;
     void backward(py::object in, py::object out) override;
@@ -30,7 +27,7 @@ public:
     // Static helper: Asks FFTW how to slice the array for a given Rank
     // Result: tuple(local_in_shape, local_in_start, local_out_shape, local_out_start)
     static std::tuple<std::vector<long>, std::vector<long>, std::vector<long>, std::vector<long>>
-    get_local_info(int ndim, const std::vector<int>& global_shape, int comm_handle, bool r2c);
+    get_local_info(const std::vector<int>& global_shape, int comm_handle, bool r2c);
 
     ~FFTW_MPI();
 };
