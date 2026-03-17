@@ -105,8 +105,8 @@ std::string doc_str = "anyFFT Core Module\n"
             " - Complex-to-Complex (complex128/64)\n"
             " - In-Place & Out-of-Place\n"
             " - Contiguous axes and strides")
-        .def("forward", &CUFFT_SERIAL_GENERIC::forward)
-        .def("backward", &CUFFT_SERIAL_GENERIC::backward);
+        .def("forward", &CUFFT_SERIAL::forward)
+        .def("backward", &CUFFT_SERIAL::backward);
 #endif
 
 #ifdef ENABLE_CUDA_MPI

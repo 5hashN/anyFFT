@@ -1,10 +1,12 @@
 include README.md
 include LICENSE
-include pyoroject.toml
+include pyproject.toml
 include setup.py
 
 graft cpp/include
 graft cpp/src
+graft src/anyFFT/benchmarks
+graft src/anyFFT/tests
 
 global-exclude *.o
 global-exclude *.so

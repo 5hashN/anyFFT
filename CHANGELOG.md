@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.9] - 2026-03-17
+
+- moved benchmarking and tests to anyfft cli
+- improvements to the scripts and cli args
+
 ## [0.1.8] - 2026-02-15
 
 - converted all modules to be as generic as possible

@@ -10,7 +10,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "anyFFT"
-version = "0.1.8"
+version = "0.1.9"
 authors = [
     {name="5hashN"}
 ]
@@ -33,6 +33,13 @@ gpu = ["cupy-cuda12x"]
 
 [project.urls]
 homepage = "https://github.com/5hashN/anyFFT"
+
+[project.scripts]
+anyfft-test = "anyFFT.cli:run_tests"
+anyfft-bench = "anyFFT.cli:run_benchmarks"
+
+[tool.setuptools]
+include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["src"]

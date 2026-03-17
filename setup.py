@@ -29,7 +29,7 @@ MPI_HOME = get_env_path("MPI_HOME")
 
 if MPI_HOME:
     ENABLE_MPI = True
-    print(f"Using MPI_HOME: {MPI_HOME}")
+    print(f"[MPI]     Using MPI_HOME at: {MPI_HOME}")
     mpi_include_dirs.append(os.path.join(MPI_HOME, "include"))
     mpi_lib_dirs.append(os.path.join(MPI_HOME, "lib"))
     mpi_libraries.append("mpi") # Link against libmpi
@@ -58,7 +58,7 @@ else:
         found_path = None
         for p in candidate_paths:
             if os.path.exists(os.path.join(p, "mpi.h")):
-                print(f"Found system 'mpi.h' at: {p}")
+                print(f"[MPI]     Found system 'mpi.h' at: {p}")
                 mpi_include_dirs.append(p)
                 found_path = p
                 found_mpi_h = True
@@ -73,16 +73,16 @@ else:
                 lib_candidate = found_path.replace("include", "lib")
                 if os.path.isdir(lib_candidate):
                     mpi_lib_dirs.append(lib_candidate)
-                    print(f"Inferred MPI lib path: {lib_candidate}")
+                    print(f"[MPI]     Inferred library path at: {lib_candidate}")
 
-            print("MPI headers found. Enabling MPI support.")
+            print("[MPI]     Headers found. Enabling MPI support.")
         else:
-            print("NOTICE: mpi4py found, but system 'mpi.h' could not be located.")
-            print("        Checked: " + ", ".join(candidate_paths))
-            print("        Skipping MPI backend. Set MPI_HOME to enable.")
+            print("[MPI]     NOTICE: mpi4py found, but system 'mpi.h' could not be located.")
+            print("          Checked: " + ", ".join(candidate_paths))
+            print("          Skipping MPI backend. Set MPI_HOME to enable.")
 
     except ImportError:
-        print("mpi4py not found. Skipping MPI backends.")
+        print("[MPI]     mpi4py not found. Skipping MPI backends.")
 
 # FFTW Detection
 FFTW_ROOT = get_env_path("FFTW_ROOT")
@@ -144,9 +144,9 @@ if HAS_CUDA and ENABLE_MPI:
 
     if cufftmp_inc_found:
         HAS_CUFFT_MPI = True
-        print(f"Found cuFFTMp header at {cufftmp_inc_found}")
+        print(f"[cuFFTMp] Found cuFFTMp header at {cufftmp_inc_found}")
     else:
-        print(f"cuFFTMp header not found in {CUFFTMP_ROOT}. Skipping cuFFTMp backend.")
+        print(f"[cuFFTMp] NOTICE: Header not found in {CUFFTMP_ROOT}. Skipping backend.")
 
 # Safety Check
 if not HAS_FFTW and not HAS_CUDA:
@@ -181,7 +181,7 @@ define_macros = []
 
 # Conditional Backend Inclusion
 if HAS_FFTW:
-    print(f"FFTW found at {FFTW_INC}. Enabling CPU support.")
+    print(f"[FFTW]    Found headers at: {FFTW_INC}")
     sources.append("cpp/src/fftw/fftw_serial.cpp")
     define_macros.append(("ENABLE_FFTW", None))
     include_dirs.append(FFTW_INC)
@@ -211,18 +211,18 @@ if HAS_FFTW:
             libomp_path = "/usr/local/opt/libomp"
 
         if libomp_path:
-            print(f"Found libomp at {libomp_path}. Enabling OpenMP.")
+            print(f"[OpenMP]  Found libomp at: {libomp_path}")
             include_dirs.append(os.path.join(libomp_path, "include"))
             library_dirs.append(os.path.join(libomp_path, "lib"))
             omp_libs = ["omp"]
             omp_flags = ["-Xpreprocessor", "-fopenmp"]
             has_openmp = True
         else:
-            print("NOTICE: libomp not found. compiling without OpenMP support.")
+            print("[OpenMP]  NOTICE: libomp not found. Compiling without OpenMP support.")
 
     else:
         # Linux/Standard: Assume OpenMP is available via compiler flag
-        print("Enabling OpenMP (Standard Linux/GCC detected).")
+        print("[OpenMP]  Enabling OpenMP (Standard Linux/GCC detected).")
         omp_flags = ["-fopenmp"]
         has_openmp = True
 
@@ -241,7 +241,7 @@ if HAS_FFTW:
         define_macros.append(("ENABLE_FFTW_OMP", None))
 
     if ENABLE_MPI:
-        print("Enabling CPU MPI support (FFTW-MPI).")
+        print("[FFTW]    Enabling CPU MPI support (FFTW-MPI).")
         sources.append("cpp/src/fftw/fftw_mpi.cpp")
         define_macros.append(("ENABLE_FFTW_MPI", None))
         include_dirs.extend(mpi_include_dirs)
@@ -249,11 +249,11 @@ if HAS_FFTW:
         libraries.extend(["fftw3_mpi", "fftw3f_mpi"])
         libraries.extend(mpi_libraries)
 else:
-    print("FFTW not found. Skipping CPU backend.")
+    print("[FFTW]    Not found. Skipping CPU backend.")
 
 cmdclass = {}
 if HAS_CUDA:
-    print(f"CUDA found at {NVCC_PATH}. Enabling GPU support.")
+    print(f"[CUDA]    Found NVCC at: {NVCC_PATH}")
     sources.append("cpp/src/cufft/cufft_serial.cu")
     define_macros.append(("ENABLE_CUDA", None))
     include_dirs.append(os.path.join(CUDA_HOME, "include"))
@@ -280,7 +280,49 @@ if HAS_CUDA:
             include_dirs.append(cufftmp_inc_found)
 
         # cuFFTMp libraries
-        libraries.extend(["cufftMp", "nvshmem"])
+        libraries.extend(["cufftMp"])
+
+        # NVSHMEM Detection
+        NVSHMEM_HOME = get_env_path("NVSHMEM_HOME")
+        has_nvshmem = False
+        nvshmem_inc_path = None
+        nvshmem_lib_path = None
+
+        # Search candidates for NVSHMEM
+        nvshmem_candidates = []
+        if NVSHMEM_HOME: nvshmem_candidates.append(NVSHMEM_HOME)
+        if CUDA_HOME: nvshmem_candidates.append(CUDA_HOME)
+        nvshmem_candidates.append("/usr/local/nvshmem")
+        nvshmem_candidates.append("/usr")
+
+        for base in nvshmem_candidates:
+            # Check for header
+            inc_candidate = os.path.join(base, "include")
+            # Headers might be nvshmem.h or nvshmemx.h
+            if os.path.exists(os.path.join(inc_candidate, "nvshmem.h")) or \
+               os.path.exists(os.path.join(inc_candidate, "nvshmemx.h")):
+
+                # Header found, now look for library
+                # Try lib64 then lib
+                lib_candidate = os.path.join(base, "lib64")
+                if not os.path.isdir(lib_candidate):
+                    lib_candidate = os.path.join(base, "lib")
+
+                if os.path.isdir(lib_candidate):
+                    nvshmem_inc_path = inc_candidate
+                    nvshmem_lib_path = lib_candidate
+                    has_nvshmem = True
+                    break
+
+        if has_nvshmem:
+            print(f"[NVSHMEM] Found headers at: {nvshmem_inc_path}")
+            include_dirs.append(nvshmem_inc_path)
+            library_dirs.append(nvshmem_lib_path)
+            libraries.append("nvshmem")
+        else:
+            print("[NVSHMEM] NOTICE: Not found. Linking cuFFTMp without explicit 'nvshmem'.")
+            print("          (If linking fails, set NVSHMEM_HOME or install NVSHMEM)")
+
         libraries.extend(mpi_libraries)
 
     # Custom Build Extension
@@ -315,7 +357,7 @@ if HAS_CUDA:
                         for inc in ext.include_dirs:
                             cmd.extend(["-I", inc])
 
-                        print(f"Compiling CUDA: {' '.join(cmd)}")
+                        print(f"[CUDA]    Compiling: {' '.join(cmd)}")
                         self.spawn(cmd)
 
                         # Link the resulting object file
@@ -325,7 +367,7 @@ if HAS_CUDA:
 
     cmdclass["build_ext"] = BuildExtensionCuda
 else:
-    print("CUDA not found. Skipping GPU backend.")
+    print("[CUDA]    Not found. Skipping GPU backend.")
 
 # Extension Definition
 ext_modules = [

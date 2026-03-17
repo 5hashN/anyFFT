@@ -543,7 +543,8 @@ FFTW_MPI::FFTW_MPI(const std::vector<int>& global_shape,
             else
                 impl_ = std::make_unique<FFTW_MPI_R2C_Generic>(ndim, global_shape, in, out, dtype, comm, comm_handle);
         } else {
-            throw std::runtime_error("R2C Out-of-Place not supported. Please use In-Place with a padded buffer.");
+            PyErr_SetString(PyExc_NotImplementedError, "R2C Out-of-Place not supported. Please use In-Place with a padded buffer.");
+            throw pybind11::error_already_set();
             // if (use_hardcoded)
             //     impl_ = std::make_unique<FFTW_MPI_R2C_OutPlace>(ndim, global_shape, in, out, dtype, comm);
             // else

@@ -100,27 +100,27 @@ inline void scale_array(py::array arr, double scale) {
         void* ptr = arr.mutable_data();
         ssize_t size = arr.size();
         if (arr.dtype().kind() == 'c') {
-            size_t total = size * 2;
+            ssize_t total = size * 2;
             if (arr.itemsize() == 16) {
                 double* d = (double*)ptr;
-                for(size_t i=0; i<total; ++i) {
+                for(ssize_t i=0; i<total; ++i) {
                     d[i] *= scale;
                 }
             } else {
                 float* f = (float*)ptr;
-                for(size_t i=0; i<total; ++i) {
+                for(ssize_t i=0; i<total; ++i) {
                     f[i] *= (float)scale;
                 }
             }
         } else {
             if (arr.itemsize() == 8) {
                 double* d = (double*)ptr;
-                for(size_t i=0; i<size; ++i) {
+                for(ssize_t i=0; i<size; ++i) {
                     d[i] *= scale;
                 }
             } else {
                 float* f = (float*)ptr;
-                for(size_t i=0; i<size; ++i) {
+                for(ssize_t i=0; i<size; ++i) {
                     f[i] *= (float)scale;
                 }
             }

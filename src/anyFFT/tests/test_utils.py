@@ -1,7 +1,6 @@
 import numpy as np
 import sys
 
-# Try to import CuPy for GPU backends (cufft / cufft_mpi)
 try:
     import cupy as cp
     HAS_CUPY = True
@@ -9,13 +8,13 @@ except ImportError:
     HAS_CUPY = False
     cp = None
 
+GREEN = "\033[92m"
+RED = "\033[91m"
+YELLOW = "\033[93m"
+CYAN = "\033[96m"
+RESET = "\033[0m"
 
-# Printing Helpers (MPI Aware)
 def print_header(backend_name, comm=None):
-    """
-    Prints the main test header.
-    Only Rank 0 prints in MPI mode.
-    """
     rank = 0
     size = 1
     if comm is not None:
@@ -23,57 +22,64 @@ def print_header(backend_name, comm=None):
         size = comm.Get_size()
 
     if rank == 0:
-        print(f"========================================")
-        print(f"Testing anyFFT Backend: {backend_name}")
+        print(f"\n{CYAN}{'='*60}{RESET}")
+        print(f"{CYAN}Testing anyFFT Backend: {backend_name}{RESET}")
         if comm is not None:
-            print(f"MPI Size: {size}")
-        print(f"========================================\n")
+            print(f"{CYAN}MPI Size: {size}{RESET}")
+        print(f"{CYAN}{'='*60}{RESET}\n")
         sys.stdout.flush()
 
-
-def print_config(ndim, shape, rank=0):
-    """Prints a configuration separator line."""
+def print_section(title, rank=0):
     if rank == 0:
-        print(f"----------------------------------------")
-        print(f"Config: {ndim}D | Shape: {list(shape)}")
-        print(f"----------------------------------------")
+        print(f"\n{CYAN}--- {title} ---{RESET}")
         sys.stdout.flush()
-
 
 def print_test_start(test_name, dtype, rank=0):
     """
     Prints the start of a test line (e.g., '  [Gen C2C] ...').
     """
     if rank == 0:
-        # Fixed width for test name to align columns nicely
-        # Truncate or pad dtype to keep alignment
         print(f"  {test_name:<45} {dtype:<10} ...", end=" ")
         sys.stdout.flush()
 
-
 def print_test_result(diff, tol=1e-4, rank=0, error=None):
     """
-    Prints PASSED/FAILED based on the difference 'diff'.
-    Handles exceptions if 'error' is provided.
+    Prints colored PASSED/FAILED based on the diff.
+    Returns True if passed, False otherwise, for global tracking.
     """
+    passed = False
+    if error:
+        msg = f"{RED}FAILED{RESET} (Error: {error})"
+    elif diff < tol:
+        msg = f"{GREEN}PASSED{RESET} (Diff: {diff:.2e})"
+        passed = True
+    else:
+        msg = f"{RED}FAILED{RESET} (Diff: {diff:.2e})"
+
     if rank == 0:
-        if error:
-            print(f"FAILED (Error: {error})")
-        elif diff < tol:
-            print(f"PASSED (Diff: {diff:.2e})")
-        else:
-            print(f"FAILED (Diff: {diff:.2e})")
+        print(msg)
         sys.stdout.flush()
 
+    return passed
 
 def print_skipped(reason, rank=0):
     """Prints a SKIPPED status."""
     if rank == 0:
-        print(f"SKIPPED ({reason})")
+        print(f"{YELLOW}SKIPPED{RESET} ({reason})")
         sys.stdout.flush()
 
+def print_summary(total, passed, failed_list, rank=0):
+    """Unified summary block for both Serial and MPI tests."""
+    if rank == 0:
+        print(f"\n{CYAN}{'='*60}{RESET}")
+        print(f"SUMMARY: Total {total} | {GREEN}Passed {passed}{RESET} | {RED}Failed {len(failed_list)}{RESET}")
+        if failed_list:
+            print(f"\n{RED}Failures:{RESET}")
+            for f in failed_list:
+                print(f"  - {f}")
+        print(f"{CYAN}{'='*60}{RESET}\n")
+        sys.stdout.flush()
 
-# Type Helpers
 def get_c2c_dtype_str(real_dtype_str):
     """
     Maps a real precision string (e.g., 'float64') to the corresponding
@@ -83,9 +89,9 @@ def get_c2c_dtype_str(real_dtype_str):
         return "complex128"
     elif real_dtype_str == "float32":
         return "complex64"
-    elif real_dtype_str == "complex128":  # Already complex
+    elif real_dtype_str == "complex128":
         return "complex128"
-    elif real_dtype_str == "complex64":  # Already complex
+    elif real_dtype_str == "complex64":
         return "complex64"
     else:
         raise ValueError(f"Unknown precision: {real_dtype_str}")
@@ -120,7 +126,6 @@ def get_cupy_types(dtype_str):
         raise ValueError(f"Unsupported dtype: {dtype_str}")
 
 
-# Data Generation
 def generate_data(shape, dtype, start_indices=None, use_gpu=False):
     """
     Generates deterministic test data (Sin/Cos waves).

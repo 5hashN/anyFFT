@@ -1,7 +1,10 @@
-# Byte-compiled / optimized / DLL files
+# Compilation related
 __pycache__/
 *.py[cod]
 *$py.class
+*.egg-info/
+build/
+dist/
 
 # Shared libraries / extension modules
 *.so
@@ -13,22 +16,12 @@ __pycache__/
 *.o
 *.obj
 
-# Build directories created by setuptools / pip
-build/
-dist/
-*.egg-info/
+# Project Specific
+plots/
 
-# Makefile artifacts (if you ever use the old Makefile)
-*.out
-*.a
-
-# VSCode
+# OS & Editors
 .vscode/
 *.code-workspace
-
-# macOS
 .DS_Store
-
-# Vim / Emacs
-*~
 *.swp
+*~
