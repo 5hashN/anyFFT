@@ -5,7 +5,7 @@ All Rights Reserved.
 Demonstration only. No license granted.
 */
 
-#include "anyfft/cufft_mpi.cuh"
+#include "anyfft/gpu/cufftmp.cuh"
 
 // Helper Macros
 #define CUDA_CHECK(call) { \
@@ -15,6 +15,41 @@ Demonstration only. No license granted.
 #define CUFFT_CHECK(call) { \
     cufftResult err = call; \
     if (err != CUFFT_SUCCESS) throw std::runtime_error("cuFFTMp Error: " + std::to_string(err)); \
+}
+
+static bool shmem_initialized = false;
+
+inline void init_shmem_if_needed(MPI_Comm comm) {
+#ifdef USE_NVSHMEM
+    if (!shmem_initialized) {
+        nvshmemx_init_attr_t attr;
+        attr.mpi_comm = &comm;
+
+        nvshmemx_init_attr(NVSHMEMX_INIT_WITH_MPI_COMM, &attr);
+        shmem_initialized = true;
+    }
+#endif
+}
+
+inline void* allocate_workspace(size_t size) {
+    if (size == 0) return nullptr;
+    void* ptr = nullptr;
+#ifdef USE_NVSHMEM
+    ptr = nvshmem_malloc(size);
+    if (!ptr) throw std::runtime_error("nvshmem_malloc failed to allocate workspace.");
+#else
+    CUDA_CHECK(cudaMalloc(&ptr, size));
+#endif
+    return ptr;
+}
+
+inline void free_workspace(void* ptr) {
+    if (!ptr) return;
+#ifdef USE_NVSHMEM
+    nvshmem_free(ptr);
+#else
+    cudaFree(ptr);
+#endif
 }
 
 void setup_local_device(MPI_Comm comm) {
@@ -176,7 +211,7 @@ void apply_distribution(cufftHandle plan, int ndim, const std::vector<int>& glob
                                        input_strides, output_strides));
 }
 
-class CUFFT_MPI_C2C : public FFTBase {
+class CUFFT_DIST_C2C : public FFTBase {
     cufftHandle plan_;
     void* work_area_ = nullptr;
     ssize_t global_N_;
@@ -184,12 +219,14 @@ class CUFFT_MPI_C2C : public FFTBase {
     MPI_Comm comm_;
 
 public:
-    CUFFT_MPI_C2C(int ndim, const std::vector<int>& shape, const std::vector<int>& proc_grid,
-                  int comm_handle, std::string dtype)
+    CUFFT_DIST_C2C(int ndim, const std::vector<int>& shape, const std::vector<int>& proc_grid,
+                   int comm_handle, std::string dtype)
         : global_N_(1), dtype_(dtype)
     {
         comm_ = get_mpi_comm(comm_handle);
         setup_local_device(comm_);
+        init_shmem_if_needed(comm_);
+
         for (int s : shape) global_N_ *= s;
 
         CUFFT_CHECK(cufftCreate(&plan_));
@@ -205,11 +242,8 @@ public:
         if (ndim == 3) CUFFT_CHECK(cufftMakePlan3d(plan_, n_long[0], n_long[1], n_long[2], t_c2c, &ws));
         else CUFFT_CHECK(cufftMakePlan2d(plan_, n_long[0], n_long[1], t_c2c, &ws));
 
-        // Workspace Allocation
-        if (ws > 0) {
-            CUDA_CHECK(cudaMalloc(&work_area_, ws));
-            CUFFT_CHECK(cufftSetWorkArea(plan_, work_area_));
-        }
+        work_area_ = allocate_workspace(ws);
+        if (ws > 0) CUFFT_CHECK(cufftSetWorkArea(plan_, work_area_));
     }
 
     void forward(py::object in, py::object out) override {
@@ -249,10 +283,13 @@ public:
         CUDA_CHECK(cudaDeviceSynchronize());
     }
 
-    ~CUFFT_MPI_C2C() { if(work_area_) cudaFree(work_area_); cufftDestroy(plan_); }
+    ~CUFFT_DIST_C2C() {
+        free_workspace(work_area_);
+        cufftDestroy(plan_);
+    }
 };
 
-class CUFFT_MPI_R2C : public FFTBase {
+class CUFFT_DIST_R2C : public FFTBase {
     cufftHandle plan_r2c_;
     cufftHandle plan_c2r_;
     void* work_area_r2c_ = nullptr;
@@ -263,12 +300,14 @@ class CUFFT_MPI_R2C : public FFTBase {
     bool inplace_;
 
 public:
-    CUFFT_MPI_R2C(int ndim, const std::vector<int>& shape, const std::vector<int>& proc_grid,
-                  int comm_handle, std::string dtype, bool inplace)
+    CUFFT_DIST_R2C(int ndim, const std::vector<int>& shape, const std::vector<int>& proc_grid,
+                   int comm_handle, std::string dtype, bool inplace)
         : global_N_(1), dtype_(dtype), inplace_(inplace)
     {
         MPI_Comm comm = get_mpi_comm(comm_handle);
         setup_local_device(comm);
+        init_shmem_if_needed(comm);
+
         for (int s : shape) global_N_ *= s;
 
         CUFFT_CHECK(cufftCreate(&plan_r2c_));
@@ -317,8 +356,11 @@ public:
             CUFFT_CHECK(cufftMakePlan2d(plan_c2r_, n_long[0], n_long[1], t_c2r, &ws_c2r));
         }
 
-        if (ws_r2c > 0) { CUDA_CHECK(cudaMalloc(&work_area_r2c_, ws_r2c)); CUFFT_CHECK(cufftSetWorkArea(plan_r2c_, work_area_r2c_)); }
-        if (ws_c2r > 0) { CUDA_CHECK(cudaMalloc(&work_area_c2r_, ws_c2r)); CUFFT_CHECK(cufftSetWorkArea(plan_c2r_, work_area_c2r_)); }
+        work_area_r2c_ = allocate_workspace(ws_r2c);
+        if (ws_r2c > 0) CUFFT_CHECK(cufftSetWorkArea(plan_r2c_, work_area_r2c_));
+
+        work_area_c2r_ = allocate_workspace(ws_c2r);
+        if (ws_c2r > 0) CUFFT_CHECK(cufftSetWorkArea(plan_c2r_, work_area_c2r_));
     }
 
     void forward(py::object in, py::object out) override {
@@ -357,18 +399,19 @@ public:
         CUDA_CHECK(cudaDeviceSynchronize());
     }
 
-    ~CUFFT_MPI_R2C() {
-        if (work_area_r2c_) cudaFree(work_area_r2c_);
-        if (work_area_c2r_) cudaFree(work_area_c2r_);
+    ~CUFFT_DIST_R2C() {
+        free_workspace(work_area_r2c_);
+        free_workspace(work_area_c2r_);
         cufftDestroy(plan_r2c_);
         cufftDestroy(plan_c2r_);
     }
 };
 
-CUFFT_MPI::CUFFT_MPI(const std::vector<int>& shape,
-                     const std::vector<int>& proc_grid,
-                     py::object in, py::object out,
-                     int comm_handle, const std::string& dtype)
+CUFFT_DIST::CUFFT_DIST(const std::vector<int>& shape,
+                       const std::vector<int>& proc_grid,
+                       py::object in, py::object out,
+                       int comm_handle,
+                       const std::string& dtype)
 {
     uintptr_t i_ptr = in.attr("data").attr("ptr").cast<uintptr_t>();
     uintptr_t o_ptr = out.attr("data").attr("ptr").cast<uintptr_t>();
@@ -376,11 +419,11 @@ CUFFT_MPI::CUFFT_MPI(const std::vector<int>& shape,
     bool is_inplace = (i_ptr == o_ptr);
 
     if (dtype == "complex128" || dtype == "complex64")
-        impl_ = std::make_unique<CUFFT_MPI_C2C>(ndim, shape, proc_grid, comm_handle, dtype);
+        impl_ = std::make_unique<CUFFT_DIST_C2C>(ndim, shape, proc_grid, comm_handle, dtype);
     else
-        impl_ = std::make_unique<CUFFT_MPI_R2C>(ndim, shape, proc_grid, comm_handle, dtype, is_inplace);
+        impl_ = std::make_unique<CUFFT_DIST_R2C>(ndim, shape, proc_grid, comm_handle, dtype, is_inplace);
 }
 
-void CUFFT_MPI::forward(py::object in, py::object out) { impl_->forward(in, out); }
-void CUFFT_MPI::backward(py::object in, py::object out) { impl_->backward(in, out); }
-CUFFT_MPI::~CUFFT_MPI() = default;
+void CUFFT_DIST::forward(py::object in, py::object out) { impl_->forward(in, out); }
+void CUFFT_DIST::backward(py::object in, py::object out) { impl_->backward(in, out); }
+CUFFT_DIST::~CUFFT_DIST() = default;

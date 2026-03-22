@@ -6,20 +6,28 @@ Demonstration only. No license granted.
 */
 
 #pragma once
-#include "fft_base.hpp"
-#include "mpi_utils.hpp"
+#include "anyfft/core/fft_base.hpp"
+#include "anyfft/core/mpi_utils.hpp"
 #include <cufftMp.h>
 
-class CUFFT_MPI : public FFTBase {
+#ifdef USE_NVSHMEM
+    #include <nvshmem.h>
+    #include <nvshmemx.h>
+#endif
+
+class CUFFT_DIST : public FFTBase {
     std::unique_ptr<FFTBase> impl_;
 
 public:
-    CUFFT_MPI(int ndim, const std::vector<int>& shape,
-              const std::vector<int>& proc_grid,
-              py::object in, py::object out,
-              int comm_handle, const std::string& dtype);
+    CUFFT_DIST(int ndim,
+               const std::vector<int>& shape,
+               const std::vector<int>& proc_grid,
+               py::object in,
+               py::object out,
+               int comm_handle,
+               const std::string& dtype);
 
-    ~CUFFT_MPI();
+    ~CUFFT_DIST();
 
     void forward(py::object in, py::object out) override;
     void backward(py::object in, py::object out) override;

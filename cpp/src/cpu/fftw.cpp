@@ -5,7 +5,7 @@ All Rights Reserved.
 Demonstration only. No license granted.
 */
 
-#include "anyfft/fftw_serial.hpp"
+#include "anyfft/cpu/fftw.hpp"
 
 // Helper: Geometry Calculation
 struct GuruDims {
@@ -97,7 +97,7 @@ public:
     }
 };
 
-class FFTW_C2C : public FFTBase {
+class FFTW_LOCAL_C2C : public FFTBase {
     std::vector<int> shape_;
     ssize_t N_;
     std::string dtype_;
@@ -105,7 +105,7 @@ class FFTW_C2C : public FFTBase {
     void* plan_backward_;
 
 public:
-    FFTW_C2C(const std::vector<int>& shape,
+    FFTW_LOCAL_C2C(const std::vector<int>& shape,
              py::array in, py::array out, std::string dtype, int n_threads, unsigned flags)
         : shape_(shape), N_(1), dtype_(dtype), plan_forward_(nullptr), plan_backward_(nullptr)
     {
@@ -177,7 +177,7 @@ public:
         scale_array(o_arr, 1.0/N_);
     }
 
-    ~FFTW_C2C() {
+    ~FFTW_LOCAL_C2C() {
         if(dtype_ == "complex128") {
             if(plan_forward_) fftw_destroy_plan((fftw_plan)plan_forward_);
             if(plan_backward_) fftw_destroy_plan((fftw_plan)plan_backward_);
@@ -188,7 +188,7 @@ public:
     }
 };
 
-class FFTW_R2C_OutPlace : public FFTBase {
+class FFTW_LOCAL_R2C_OutPlace : public FFTBase {
     std::vector<int> shape_;
     ssize_t N_;
     std::string dtype_;
@@ -196,7 +196,7 @@ class FFTW_R2C_OutPlace : public FFTBase {
     void* plan_c2r_;
 
 public:
-    FFTW_R2C_OutPlace(const std::vector<int>& shape,
+    FFTW_LOCAL_R2C_OutPlace(const std::vector<int>& shape,
                       py::array r, py::array c, std::string dtype, int n_threads, unsigned flags)
         : shape_(shape), N_(1), dtype_(dtype), plan_r2c_(nullptr), plan_c2r_(nullptr)
     {
@@ -264,7 +264,7 @@ public:
         scale_array(o_arr, 1.0/N_);
     }
 
-    ~FFTW_R2C_OutPlace() {
+    ~FFTW_LOCAL_R2C_OutPlace() {
         if(dtype_ == "float64") {
             if(plan_r2c_) fftw_destroy_plan((fftw_plan)plan_r2c_);
             if(plan_c2r_) fftw_destroy_plan((fftw_plan)plan_c2r_);
@@ -275,7 +275,7 @@ public:
     }
 };
 
-class FFTW_R2C_InPlace : public FFTBase {
+class FFTW_LOCAL_R2C_InPlace : public FFTBase {
     std::vector<int> shape_;
     ssize_t N_;
     std::string dtype_;
@@ -283,7 +283,7 @@ class FFTW_R2C_InPlace : public FFTBase {
     void* plan_c2r_;
 
 public:
-    FFTW_R2C_InPlace(const std::vector<int>& shape, py::array data,
+    FFTW_LOCAL_R2C_InPlace(const std::vector<int>& shape, py::array data,
                      std::string dtype, int n_threads, unsigned flags)
         : shape_(shape), N_(1), dtype_(dtype), plan_r2c_(nullptr), plan_c2r_(nullptr)
     {
@@ -351,7 +351,7 @@ public:
         scale_array(o_arr, 1.0/N_);
     }
 
-    ~FFTW_R2C_InPlace() {
+    ~FFTW_LOCAL_R2C_InPlace() {
         if(dtype_ == "float64") {
             if(plan_r2c_) fftw_destroy_plan((fftw_plan)plan_r2c_);
             if(plan_c2r_) fftw_destroy_plan((fftw_plan)plan_c2r_);
@@ -362,14 +362,14 @@ public:
     }
 };
 
-class FFTW_Guru_C2C : public FFTBase {
+class FFTW_LOCAL_GURU_C2C : public FFTBase {
     std::string dtype_;
     void* plan_fwd_ = nullptr;
     void* plan_bwd_ = nullptr;
     double scale_;
 
 public:
-    FFTW_Guru_C2C(const std::vector<int>& shape, const std::vector<int>& axes,
+    FFTW_LOCAL_GURU_C2C(const std::vector<int>& shape, const std::vector<int>& axes,
                   py::array in, py::array out, std::string dtype, int n_threads, unsigned flags)
         : dtype_(dtype)
     {
@@ -441,17 +441,17 @@ public:
         scale_array(o_arr, scale_);
     }
 
-    ~FFTW_Guru_C2C() = default;
+    ~FFTW_LOCAL_GURU_C2C() = default;
 };
 
-class FFTW_Guru_R2C : public FFTBase {
+class FFTW_LOCAL_Guru_R2C : public FFTBase {
     std::string dtype_;
     void* plan_r2c_ = nullptr;
     void* plan_c2r_ = nullptr;
     double scale_;
 
 public:
-    FFTW_Guru_R2C(const std::vector<int>& shape, const std::vector<int>& axes,
+    FFTW_LOCAL_Guru_R2C(const std::vector<int>& shape, const std::vector<int>& axes,
                   py::array in, py::array out, std::string dtype, int n_threads, unsigned flags)
         : dtype_(dtype)
     {
@@ -525,10 +525,10 @@ public:
         scale_array(o_arr, scale_);
     }
 
-    ~FFTW_Guru_R2C() = default;
+    ~FFTW_LOCAL_Guru_R2C() = default;
 };
 
-FFTW_SERIAL::FFTW_SERIAL(const std::vector<int>& shape,
+FFTW_LOCAL::FFTW_LOCAL(const std::vector<int>& shape,
                          const std::vector<int>& axes,
                          py::array real_in, py::array complex_out,
                          const std::string& dtype, int n_threads, unsigned flags)
@@ -549,11 +549,11 @@ FFTW_SERIAL::FFTW_SERIAL(const std::vector<int>& shape,
     }
 
     if (dtype == "complex128" || dtype == "complex64")
-        impl_ = std::make_unique<FFTW_Guru_C2C>(shape, active_axes, real_in, complex_out, dtype, n_threads, flags);
+        impl_ = std::make_unique<FFTW_LOCAL_GURU_C2C>(shape, active_axes, real_in, complex_out, dtype, n_threads, flags);
     else
-        impl_ = std::make_unique<FFTW_Guru_R2C>(shape, active_axes, real_in, complex_out, dtype, n_threads, flags);
+        impl_ = std::make_unique<FFTW_LOCAL_Guru_R2C>(shape, active_axes, real_in, complex_out, dtype, n_threads, flags);
 }
 
-void FFTW_SERIAL::forward(py::object in, py::object out) { impl_->forward(in, out); }
-void FFTW_SERIAL::backward(py::object in, py::object out) { impl_->backward(in, out); }
-FFTW_SERIAL::~FFTW_SERIAL() = default;
+void FFTW_LOCAL::forward(py::object in, py::object out) { impl_->forward(in, out); }
+void FFTW_LOCAL::backward(py::object in, py::object out) { impl_->backward(in, out); }
+FFTW_LOCAL::~FFTW_LOCAL() = default;

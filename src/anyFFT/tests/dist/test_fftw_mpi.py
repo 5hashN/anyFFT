@@ -1,3 +1,10 @@
+"""
+anyFFT
+Copyright (C) 2026 5hashN
+All Rights Reserved.
+Demonstration only. No license granted.
+"""
+
 from mpi4py import MPI
 import numpy as np
 import sys
@@ -15,7 +22,7 @@ except ImportError:
 
 comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
-BACKEND = "fftw"
+BACKEND = "fftw_mpi"
 
 
 def test_r2c_out_of_place(dtype_str, global_shape, ndim):

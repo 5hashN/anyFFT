@@ -26,6 +26,8 @@ Demonstration only. No license granted.
 #include <set>
 #include <functional>
 
+#include <cstdlib>
+
 // Pybind11 headers
 #include <pybind11/pybind11.h>
 #include <pybind11/numpy.h>

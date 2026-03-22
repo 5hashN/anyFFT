@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.10] - 2026-03-21
+
+- integrated hipfft to make a unified gpu backend for local transforms
+- refactored and organised the structure
+- further improvements to the scripts and cli args
+
 ## [0.1.9] - 2026-03-17
 
 - moved benchmarking and tests to anyfft cli

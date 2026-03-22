@@ -1,391 +1,305 @@
+"""
+anyFFT
+Copyright (C) 2026 5hashN
+All Rights Reserved.
+Demonstration only. No license granted.
+
+anyFFT Build Script
+
+This script builds the C++/CUDA/HIP bindings for anyFFT. It automatically attempts
+to detect installed libraries (FFTW, CUDA, ROCm, MPI), but you can override the
+detection logic by setting the following environment variables before installation:
+
+General Build:
+    MAX_JOBS        : Number of parallel workers for compiling GPU source files.
+                      (Defaults to total CPU cores).
+
+CPU Backends:
+    FFTW_ROOT       : Path to the FFTW3 installation.
+    MPI_HOME        : Path to the MPI installation. If set, bypasses mpi4py detection.
+
+GPU Backends (Local & Distributed):
+    CUDA_HOME       : Path to the CUDA Toolkit (defaults to /usr/local/cuda).
+    ROCM_HOME       : Path to the AMD ROCm Toolkit (defaults to /opt/rocm).
+    USE_HIP         : Set to "1" to force building with HIP/ROCm instead of CUDA on
+                      hybrid systems where both compilers are present.
+    CUFFTMP_ROOT    : Path to the NVIDIA cuFFTMp library headers/binaries.
+    NVSHMEM_HOME    : Path to the NVIDIA NVSHMEM library.
+    ROCSHMEM_HOME   : Path to the AMD rocSHMEM library.
+"""
+
 import os
 import sys
 import shutil
 import subprocess
 import sysconfig
+from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
 from setuptools import setup, Extension, find_packages
 from setuptools.command.build_ext import build_ext
 import pybind11
 import numpy
 
 
-# Helper: Path Discovery
+_brew_cache = {}
+
+def get_brew_prefix(package):
+    if sys.platform != "darwin":
+        return None
+    if package not in _brew_cache:
+        try:
+            res = subprocess.run(["brew", "--prefix", package], capture_output=True, text=True, check=True)
+            _brew_cache[package] = res.stdout.strip()
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            _brew_cache[package] = None
+    return _brew_cache[package]
+
 def get_env_path(env_var, default=None):
-    """Retrieves a path from env var, checking if it exists."""
-    path = os.environ.get(env_var, default)
-    if path and os.path.isdir(path):
-        return path
+    val = os.environ.get(env_var, default)
+    if val:
+        p = Path(val)
+        if p.is_dir():
+            return str(p)
     return None
 
+def find_c_dependency(name, header_name, candidate_paths):
+    for base in [_f for _f in candidate_paths if _f]:
+        base_p = Path(base)
+        for inc_sub in ["include", "math_libs/include"]:
+            inc_path = base_p / inc_sub
+            if (inc_path / header_name).exists():
+                for lib_sub in ["lib64", "lib"]:
+                    lib_path = base_p / lib_sub
+                    if lib_path.is_dir():
+                        print(f"[{name}] Found headers at: {inc_path}")
+                        return {"found": True, "include": str(inc_path), "lib": str(lib_path)}
+
+    print(f"[{name}] NOTICE: Not found. Skipping/Missing {header_name}.")
+    return {"found": False, "include": "", "lib": ""}
+
+
+# Thread Control for Compilation
+try:
+    MAX_JOBS = int(os.environ.get("MAX_JOBS", os.cpu_count() or 1))
+    MAX_JOBS = max(1, MAX_JOBS)
+except ValueError:
+    MAX_JOBS = os.cpu_count() or 1
 
 # MPI Detection
-ENABLE_MPI = False
-mpi_include_dirs = []
-mpi_lib_dirs = []
-mpi_libraries = []
+mpi_info = {"enabled": False, "includes": [], "lib_dirs": [], "libs": []}
+mpi_home = get_env_path("MPI_HOME")
 
-# Check User Environment Variable first
-MPI_HOME = get_env_path("MPI_HOME")
-
-if MPI_HOME:
-    ENABLE_MPI = True
-    print(f"[MPI]     Using MPI_HOME at: {MPI_HOME}")
-    mpi_include_dirs.append(os.path.join(MPI_HOME, "include"))
-    mpi_lib_dirs.append(os.path.join(MPI_HOME, "lib"))
-    mpi_libraries.append("mpi") # Link against libmpi
+if mpi_home:
+    mpi_p = Path(mpi_home)
+    mpi_info.update({
+        "enabled": True, "includes": [str(mpi_p / "include")],
+        "lib_dirs": [str(mpi_p / "lib")], "libs": ["mpi"]
+    })
+    print(f"[MPI]     Using explicitly defined MPI_HOME: {mpi_home}")
 else:
-    # Fallback to mpi4py detection
     try:
         import mpi4py
-
-        # Add mpi4py's OWN include dir
-        mpi_include_dirs.append(mpi4py.get_include())
-
-        # Build list of candidate paths
-        candidate_paths = []
-        config = mpi4py.get_config()
-        candidate_paths.extend(config.get("include_dirs", []))
-
-        # Add Homebrew and standard paths explicitly (Crucial for Mac)
-        candidate_paths.extend([
-            "/opt/homebrew/include",  # Apple Silicon Homebrew
-            "/usr/local/include",     # Intel Homebrew / Standard
-            "/usr/include"            # System Standard
-        ])
-
-        # Strictly search for mpi.h
-        found_mpi_h = False
-        found_path = None
-        for p in candidate_paths:
-            if os.path.exists(os.path.join(p, "mpi.h")):
-                print(f"[MPI]     Found system 'mpi.h' at: {p}")
-                mpi_include_dirs.append(p)
-                found_path = p
-                found_mpi_h = True
-                break
-
-        if found_mpi_h:
-            ENABLE_MPI = True
-            mpi_libraries.append("mpi")
-
-            # If header is in /opt/homebrew/include, we MUST add /opt/homebrew/lib
-            if found_path and "include" in found_path:
-                lib_candidate = found_path.replace("include", "lib")
-                if os.path.isdir(lib_candidate):
-                    mpi_lib_dirs.append(lib_candidate)
-                    print(f"[MPI]     Inferred library path at: {lib_candidate}")
-
-            print("[MPI]     Headers found. Enabling MPI support.")
-        else:
-            print("[MPI]     NOTICE: mpi4py found, but system 'mpi.h' could not be located.")
-            print("          Checked: " + ", ".join(candidate_paths))
-            print("          Skipping MPI backend. Set MPI_HOME to enable.")
-
+        mpi_candidates = mpi4py.get_config().get("include_dirs", []) + [
+            "/opt/homebrew", "/usr/local", "/usr"
+        ]
+        res = find_c_dependency("MPI", "mpi.h", mpi_candidates)
+        if res["found"]:
+            mpi_info.update({
+                "enabled": True, "libs": ["mpi"],
+                "includes": [mpi4py.get_include(), res["include"]],
+                "lib_dirs": [res["lib"]]
+            })
     except ImportError:
         print("[MPI]     mpi4py not found. Skipping MPI backends.")
 
 # FFTW Detection
-FFTW_ROOT = get_env_path("FFTW_ROOT")
+fftw_candidates = [get_env_path("FFTW_ROOT"), get_brew_prefix("fftw"), "/usr/local", "/usr"]
+fftw_info = find_c_dependency("FFTW", "fftw3.h", fftw_candidates)
 
-# If not explicitly set, try to find it via Homebrew (macOS)
-if not FFTW_ROOT and sys.platform == "darwin":
-    try:
-        # Ask brew where fftw is installed
-        res = subprocess.run(
-            ["brew", "--prefix", "fftw"], capture_output=True, text=True
-        )
-        if res.returncode == 0:
-            FFTW_ROOT = res.stdout.strip()
-    except FileNotFoundError:
-        pass  # brew not found
+# OpenMP Detection
+omp_info = {"found": False, "flags": [], "libs": [], "includes": [], "lib_dirs": []}
+if sys.platform == "darwin":
+    omp_res = find_c_dependency("OpenMP", "omp.h", [get_brew_prefix("libomp"), "/opt/homebrew/opt/libomp", "/usr/local/opt/libomp"])
+    if omp_res["found"]:
+        omp_info.update({
+            "found": True, "includes": [omp_res["include"]], "lib_dirs": [omp_res["lib"]],
+            "libs": ["omp"], "flags": ["-Xpreprocessor", "-fopenmp"]
+        })
+else:
+    print("[OpenMP]  Enabling OpenMP (Standard Linux/GCC default).")
+    omp_info.update({"found": True, "flags": ["-fopenmp"]})
 
-# Fallback defaults
-if not FFTW_ROOT:
-    FFTW_ROOT = "/usr"
+# CUDA & HIP Detection
+cuda_home = get_env_path("CUDA_HOME", "/usr/local/cuda")
+rocm_home = get_env_path("ROCM_HOME", "/opt/rocm")
 
-FFTW_INC = os.environ.get("FFTW_INC", os.path.join(FFTW_ROOT, "include"))
-FFTW_LIB = os.environ.get("FFTW_LIB", os.path.join(FFTW_ROOT, "lib"))
+nvcc_path = shutil.which("nvcc")
+if not nvcc_path and cuda_home:
+    candidate = Path(cuda_home) / "bin" / "nvcc"
+    if candidate.exists():
+        nvcc_path = str(candidate)
 
-# Fallback: Check /usr/local if not found in /usr
-if not os.path.exists(os.path.join(FFTW_INC, "fftw3.h")) and FFTW_ROOT == "/usr":
-    FFTW_INC = "/usr/local/include"
-    FFTW_LIB = "/usr/local/lib"
+hipcc_path = shutil.which("hipcc")
+if not hipcc_path and rocm_home:
+    candidate = Path(rocm_home) / "bin" / "hipcc"
+    if candidate.exists():
+        hipcc_path = str(candidate)
 
-HAS_FFTW = os.path.exists(os.path.join(FFTW_INC, "fftw3.h"))
+USE_HIP = os.environ.get("USE_HIP", "0") == "1"
+has_cuda = (nvcc_path is not None) and not USE_HIP
+has_hip = (hipcc_path is not None) and (USE_HIP or not has_cuda)
 
-# CUDA Detection
-CUDA_HOME = get_env_path("CUDA_HOME", "/usr/local/cuda")
-NVCC_PATH = shutil.which("nvcc")
-
-# If nvcc isn't in PATH, try looking in CUDA_HOME
-if NVCC_PATH is None and CUDA_HOME:
-    candidate = os.path.join(CUDA_HOME, "bin", "nvcc")
-    if os.path.exists(candidate):
-        NVCC_PATH = candidate
-
-HAS_CUDA = NVCC_PATH is not None
-
-# Check if cufftMp header exists
-HAS_CUFFT_MPI = False
-if HAS_CUDA and ENABLE_MPI:
-    CUFFTMP_ROOT = get_env_path("CUFFTMP_ROOT", CUDA_HOME)
-
-    # Check common subdirectories for the header
-    possible_include_paths = [
-        os.path.join(CUFFTMP_ROOT, "include"),
-        os.path.join(CUFFTMP_ROOT, "math_libs", "include"),  # Common in HPC SDK
-    ]
-
-    cufftmp_inc_found = None
-    for p in possible_include_paths:
-        if os.path.exists(os.path.join(p, "cufftMp.h")):
-            cufftmp_inc_found = p
-            break
-
-    if cufftmp_inc_found:
-        HAS_CUFFT_MPI = True
-        print(f"[cuFFTMp] Found cuFFTMp header at {cufftmp_inc_found}")
-    else:
-        print(f"[cuFFTMp] NOTICE: Header not found in {CUFFTMP_ROOT}. Skipping backend.")
-
-# Safety Check
-if not HAS_FFTW and not HAS_CUDA:
-    print("CRITICAL ERROR: Neither FFTW nor CUDA was found.")
-    print("                Please install FFTW (libfftw3-dev) or a CUDA Toolkit.")
+if not fftw_info["found"] and not has_cuda and not has_hip:
+    print("\nCRITICAL ERROR: Neither FFTW, CUDA, nor HIP was found.")
+    print("                Please install FFTW, a CUDA Toolkit, or ROCm.")
     sys.exit(1)
 
-# Compiler & Linker Flags
-# Flags for the C++ Compiler
-extra_compile_args = ["-O3", "-Wall", "-std=c++17"]
-
-# Flags for the Linker
-extra_link_args = []
-if sys.platform == "darwin":
-    # These are linker flags, not compiler flags
-    extra_link_args.extend(["-undefined", "dynamic_lookup"])
-
-# Base includes
-include_dirs = [
-    pybind11.get_include(),
-    numpy.get_include(),
-    sysconfig.get_path("include"),
-    sysconfig.get_path("platinclude"),
-    "cpp/include",
-    "cpp/src",
-]
 
 sources = ["cpp/src/module.cpp"]
 libraries = ["m"]
 library_dirs = []
 define_macros = []
+extra_compile_args = ["-O3", "-Wall", "-std=c++17"] + omp_info["flags"]
+extra_link_args = ["-undefined", "dynamic_lookup"] if sys.platform == "darwin" else omp_info["flags"]
 
-# Conditional Backend Inclusion
-if HAS_FFTW:
-    print(f"[FFTW]    Found headers at: {FFTW_INC}")
-    sources.append("cpp/src/fftw/fftw_serial.cpp")
+include_dirs = [
+    pybind11.get_include(), numpy.get_include(),
+    sysconfig.get_path("include"), sysconfig.get_path("platinclude"),
+    "cpp/include", "cpp/src"
+] + omp_info["includes"]
+
+library_dirs.extend(omp_info["lib_dirs"])
+
+# CPU Backend
+if fftw_info["found"]:
+    sources.append("cpp/src/cpu/fftw.cpp")
     define_macros.append(("ENABLE_FFTW", None))
-    include_dirs.append(FFTW_INC)
-    library_dirs.append(FFTW_LIB)
-
+    include_dirs.append(fftw_info["include"])
+    library_dirs.append(fftw_info["lib"])
     libraries.extend(["fftw3", "fftw3f"])
 
-    has_openmp = False
-    omp_flags = []
-    omp_libs = []
-
-    if sys.platform == "darwin":
-        libomp_path = None
-        try:
-            res = subprocess.run(
-                ["brew", "--prefix", "libomp"], capture_output=True, text=True
-            )
-            if res.returncode == 0:
-                libomp_path = res.stdout.strip()
-        except FileNotFoundError:
-            pass
-
-        # Fallback checks
-        if not libomp_path and os.path.exists("/opt/homebrew/opt/libomp"):
-            libomp_path = "/opt/homebrew/opt/libomp"
-        elif not libomp_path and os.path.exists("/usr/local/opt/libomp"):
-            libomp_path = "/usr/local/opt/libomp"
-
-        if libomp_path:
-            print(f"[OpenMP]  Found libomp at: {libomp_path}")
-            include_dirs.append(os.path.join(libomp_path, "include"))
-            library_dirs.append(os.path.join(libomp_path, "lib"))
-            omp_libs = ["omp"]
-            omp_flags = ["-Xpreprocessor", "-fopenmp"]
-            has_openmp = True
-        else:
-            print("[OpenMP]  NOTICE: libomp not found. Compiling without OpenMP support.")
-
-    else:
-        # Linux/Standard: Assume OpenMP is available via compiler flag
-        print("[OpenMP]  Enabling OpenMP (Standard Linux/GCC detected).")
-        omp_flags = ["-fopenmp"]
-        has_openmp = True
-
-    if has_openmp:
-        # Add the Threaded FFTW libraries
-        libraries.extend(["fftw3_omp", "fftw3f_omp"])
-        libraries.extend(omp_libs)
-        extra_compile_args.extend(omp_flags)
-
-        # NOTE: For linking on Mac, we usually don't need extra_link_args if we link 'omp' directly,
-        # but adding the flags doesn't hurt.
-        if sys.platform != "darwin":
-            extra_link_args.extend(omp_flags)
-
-        # Define the macro for C++ code
+    if omp_info["found"]:
+        libraries.extend(["fftw3_omp", "fftw3f_omp"] + omp_info["libs"])
         define_macros.append(("ENABLE_FFTW_OMP", None))
 
-    if ENABLE_MPI:
-        print("[FFTW]    Enabling CPU MPI support (FFTW-MPI).")
-        sources.append("cpp/src/fftw/fftw_mpi.cpp")
+    if mpi_info["enabled"]:
+        sources.append("cpp/src/cpu/fftw_mpi.cpp")
         define_macros.append(("ENABLE_FFTW_MPI", None))
-        include_dirs.extend(mpi_include_dirs)
-        library_dirs.extend(mpi_lib_dirs)
-        libraries.extend(["fftw3_mpi", "fftw3f_mpi"])
-        libraries.extend(mpi_libraries)
-else:
-    print("[FFTW]    Not found. Skipping CPU backend.")
+        include_dirs.extend(mpi_info["includes"])
+        library_dirs.extend(mpi_info["lib_dirs"])
+        libraries.extend(["fftw3_mpi", "fftw3f_mpi"] + mpi_info["libs"])
 
+# GPU Backend
 cmdclass = {}
-if HAS_CUDA:
-    print(f"[CUDA]    Found NVCC at: {NVCC_PATH}")
-    sources.append("cpp/src/cufft/cufft_serial.cu")
+
+if has_cuda:
+    print(f"[CUDA]    Found NVCC at: {nvcc_path}")
+    sources.append("cpp/src/gpu/gpufft.cu")
     define_macros.append(("ENABLE_CUDA", None))
-    include_dirs.append(os.path.join(CUDA_HOME, "include"))
+    include_dirs.append(str(Path(cuda_home) / "include"))
 
-    # Handle lib64 vs lib folder structure
-    cuda_lib64 = os.path.join(CUDA_HOME, "lib64")
-    if os.path.isdir(cuda_lib64):
-        library_dirs.append(cuda_lib64)
-    else:
-        library_dirs.append(os.path.join(CUDA_HOME, "lib"))
-
+    cuda_lib64 = Path(cuda_home) / "lib64"
+    library_dirs.append(str(cuda_lib64) if cuda_lib64.is_dir() else str(Path(cuda_home) / "lib"))
     libraries.extend(["cufft", "cudart"])
 
-    if HAS_CUFFT_MPI:
-        sources.append("cpp/src/cufft/cufft_mpi.cu")
-        define_macros.append(("ENABLE_CUDA_MPI", None))
+    if mpi_info["enabled"]:
+        cufftmp = find_c_dependency("cuFFTMp", "cufftMp.h", [get_env_path("CUFFTMP_ROOT"), cuda_home])
+        if cufftmp["found"]:
+            sources.extend(["cpp/src/gpu/cufftmp.cu", "cpp/src/gpu/gpufft_dist.cu"])
+            define_macros.append(("ENABLE_CUDA_MPI", None))
+            include_dirs.extend(mpi_info["includes"] + [cufftmp["include"]])
+            library_dirs.extend(mpi_info["lib_dirs"] + [cufftmp["lib"]])
+            libraries.extend(["cufftMp"] + mpi_info["libs"])
 
-        # Add MPI paths for CUDA backend
-        include_dirs.extend(mpi_include_dirs)
-        library_dirs.extend(mpi_lib_dirs)
+            nvshmem = find_c_dependency("NVSHMEM", "nvshmem.h", [get_env_path("NVSHMEM_HOME"), cuda_home, "/usr/local/nvshmem", "/usr"])
+            if nvshmem["found"]:
+                include_dirs.append(nvshmem["include"])
+                library_dirs.append(nvshmem["lib"])
+                libraries.append("nvshmem")
+                define_macros.append(("USE_NVSHMEM", None))
 
-        # If we found cuFFTMp in a specific subfolder (like math_libs/include), add it
-        if cufftmp_inc_found:
-            include_dirs.append(cufftmp_inc_found)
+elif has_hip:
+    print(f"[HIP]     Found HIPCC at: {hipcc_path}")
+    sources.append("cpp/src/gpu/gpufft.cu")
+    define_macros.append(("__HIP_PLATFORM_AMD__", None))
+    define_macros.append(("ENABLE_HIP", None))
 
-        # cuFFTMp libraries
-        libraries.extend(["cufftMp"])
+    rocm_inc = Path(rocm_home) / "include"
+    include_dirs.extend([
+        str(rocm_inc),
+        str(rocm_inc / "hipfft"),
+        str(rocm_inc / "rocfft")
+    ])
 
-        # NVSHMEM Detection
-        NVSHMEM_HOME = get_env_path("NVSHMEM_HOME")
-        has_nvshmem = False
-        nvshmem_inc_path = None
-        nvshmem_lib_path = None
+    rocm_lib64 = Path(rocm_home) / "lib64"
+    library_dirs.append(str(rocm_lib64) if rocm_lib64.is_dir() else str(Path(rocm_home) / "lib"))
 
-        # Search candidates for NVSHMEM
-        nvshmem_candidates = []
-        if NVSHMEM_HOME: nvshmem_candidates.append(NVSHMEM_HOME)
-        if CUDA_HOME: nvshmem_candidates.append(CUDA_HOME)
-        nvshmem_candidates.append("/usr/local/nvshmem")
-        nvshmem_candidates.append("/usr")
+    libraries.extend(["hipfft", "rocfft", "amdhip64"])
 
-        for base in nvshmem_candidates:
-            # Check for header
-            inc_candidate = os.path.join(base, "include")
-            # Headers might be nvshmem.h or nvshmemx.h
-            if os.path.exists(os.path.join(inc_candidate, "nvshmem.h")) or \
-               os.path.exists(os.path.join(inc_candidate, "nvshmemx.h")):
+    if mpi_info["enabled"]:
+        print("[HIP]     Enabling GPU MPI support (Unified Backend).")
+        sources.append("cpp/src/gpu/gpufft_dist.cu")
+        define_macros.append(("ENABLE_HIP_MPI", None))
+        include_dirs.extend(mpi_info["includes"])
+        library_dirs.extend(mpi_info["lib_dirs"])
+        libraries.extend(mpi_info["libs"])
 
-                # Header found, now look for library
-                # Try lib64 then lib
-                lib_candidate = os.path.join(base, "lib64")
-                if not os.path.isdir(lib_candidate):
-                    lib_candidate = os.path.join(base, "lib")
+        rocshmem = find_c_dependency("rocSHMEM", "rocshmem/rocshmem.hpp", [get_env_path("ROCSHMEM_HOME"), rocm_home, "/opt/rocm", "/usr"])
+        if rocshmem["found"]:
+            include_dirs.append(rocshmem["include"])
+            library_dirs.append(rocshmem["lib"])
+            libraries.append("rocshmem")
+            define_macros.append(("USE_ROCSHMEM", None))
 
-                if os.path.isdir(lib_candidate):
-                    nvshmem_inc_path = inc_candidate
-                    nvshmem_lib_path = lib_candidate
-                    has_nvshmem = True
-                    break
 
-        if has_nvshmem:
-            print(f"[NVSHMEM] Found headers at: {nvshmem_inc_path}")
-            include_dirs.append(nvshmem_inc_path)
-            library_dirs.append(nvshmem_lib_path)
-            libraries.append("nvshmem")
-        else:
-            print("[NVSHMEM] NOTICE: Not found. Linking cuFFTMp without explicit 'nvshmem'.")
-            print("          (If linking fails, set NVSHMEM_HOME or install NVSHMEM)")
-
-        libraries.extend(mpi_libraries)
-
-    # Custom Build Extension
-    class BuildExtensionCuda(build_ext):
+if has_cuda or has_hip:
+    class BuildExtensionGPU(build_ext):
         def build_extensions(self):
-            # Filter out .cu files to prevent default compiler from failing on them
             for ext in self.extensions:
-                cuda_sources = [s for s in ext.sources if s.endswith(".cu")]
+                gpu_sources = [s for s in ext.sources if s.endswith(".cu")]
                 ext.sources = [s for s in ext.sources if not s.endswith(".cu")]
 
-                if cuda_sources:
-                    for source in cuda_sources:
-                        # Compile .cu file to .o file
-                        rel_path = os.path.relpath(source, start=".")
-                        obj_rel_path = os.path.splitext(rel_path)[0] + ".o"
-                        obj_path = os.path.join(self.build_temp, obj_rel_path)
+                def compile_gpu_source(source):
+                    src_path = Path(source)
+                    obj_path = Path(self.build_temp) / src_path.with_suffix(".o")
 
-                        # Ensure directory exists in build_temp
-                        os.makedirs(os.path.dirname(obj_path), exist_ok=True)
+                    # Ensure the destination directory exists
+                    obj_path.parent.mkdir(parents=True, exist_ok=True)
 
-                        cmd = [
-                            NVCC_PATH, "-c", source, "-o", obj_path,
-                            "-std=c++17",
-                            "-Xcompiler", "-fPIC",
-                            "-arch=native"
-                        ]
+                    if has_cuda:
+                        cmd = [nvcc_path, "-c", str(src_path), "-o", str(obj_path), "-std=c++17", "-Xcompiler", "-fPIC", "-arch=native"]
+                    else:
+                        cmd = [hipcc_path, "-c", str(src_path), "-o", str(obj_path), "-std=c++17", "-fPIC"]
 
-                        for macro, val in ext.define_macros:
-                            cmd.append(f"-D{macro}")
+                    cmd.extend([f"-D{m[0]}" for m in ext.define_macros])
+                    for inc in ext.include_dirs: cmd.extend(["-I", inc])
 
-                        # Add Include Paths
-                        for inc in ext.include_dirs:
-                            cmd.extend(["-I", inc])
+                    subprocess.check_call(cmd)
+                    return str(obj_path)
 
-                        print(f"[CUDA]    Compiling: {' '.join(cmd)}")
-                        self.spawn(cmd)
-
-                        # Link the resulting object file
-                        ext.extra_objects.append(obj_path)
+                if gpu_sources:
+                    print(f"[Build]   Compiling {len(gpu_sources)} GPU files using {MAX_JOBS} threads...")
+                    with ThreadPoolExecutor(max_workers=MAX_JOBS) as executor:
+                        obj_files = list(executor.map(compile_gpu_source, gpu_sources))
+                    ext.extra_objects.extend(obj_files)
 
             super().build_extensions()
 
-    cmdclass["build_ext"] = BuildExtensionCuda
-else:
-    print("[CUDA]    Not found. Skipping GPU backend.")
+    cmdclass["build_ext"] = BuildExtensionGPU
 
-# Extension Definition
-ext_modules = [
-    Extension(
+
+setup(
+    ext_modules=[Extension(
         "anyFFT._core",
         sources=sources,
-        include_dirs=include_dirs,
-        library_dirs=library_dirs,
-        libraries=libraries,
+        include_dirs=list(dict.fromkeys(include_dirs)),
+        library_dirs=list(dict.fromkeys(library_dirs)),
+        libraries=list(dict.fromkeys(libraries)),
         extra_compile_args=extra_compile_args,
         extra_link_args=extra_link_args,
         define_macros=define_macros,
         language="c++",
-    )
-]
-
-setup(
-    ext_modules=ext_modules,
+    )],
     package_dir={"": "src"},
     packages=find_packages(where="src"),
     cmdclass=cmdclass,

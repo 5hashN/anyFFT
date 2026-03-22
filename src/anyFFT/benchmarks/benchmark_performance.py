@@ -1,3 +1,10 @@
+"""
+anyFFT
+Copyright (C) 2026 5hashN
+All Rights Reserved.
+Demonstration only. No license granted.
+"""
+
 import os
 import sys
 import time
@@ -32,6 +39,7 @@ for var in thread_vars:
 DEPS = {
     "anyfft_fftw": False,
     "anyfft_cufft": False,
+    "anyfft_hipfft": False,
     "pyfftw": False,
     "cupy": False
 }
@@ -40,6 +48,8 @@ try:
     import anyFFT
     DEPS["anyfft_fftw"] = anyFFT.has_backend("fftw")
     DEPS["anyfft_cufft"] = anyFFT.has_backend("cufft")
+    DEPS["anyfft_hipfft"] = anyFFT.has_backend("hipfft")
+    DEPS["gpufft_backend"] = anyFFT.get_gpu_backend_name()
 except ImportError:
     pass
 
@@ -79,7 +89,7 @@ def ensure_vram(N, dtype_np, num_arrays=3, safety_margin=0.50):
     if total_bytes_needed > (free_mem * safety_margin):
         needed_gb = total_bytes_needed / (1024**3)
         free_gb = free_mem / (1024**3)
-        raise cp.cuda.memory.OutOfMemoryError(
+        raise MemoryError(
             f"Requires ~{needed_gb:.2f} GB VRAM, but only {free_gb:.2f} GB is free."
         )
 
@@ -93,6 +103,7 @@ def measure_time(target_func, iterations, is_gpu=False):
         target_func()
 
     if is_gpu:
+        import cupy as cp
         cp.cuda.Device().synchronize()
 
     return time.time() - start
@@ -103,11 +114,11 @@ def run_cpu_benchmark(sizes, dtype_np, dtype_str, iterations=10):
     print(f"{CYAN}CPU Benchmark | Threads: 1 | {dtype_str}{RESET}")
     print(f"{CYAN}{'='*60}{RESET}")
 
-    results = {"NumPy": [], "pyFFTW": [], "anyFFT": []}
-    successful_sizes = []
+    results = {"NumPy": []}
+    if DEPS["pyfftw"]: results["pyFFTW"] = []
+    if DEPS["anyfft_fftw"]: results["anyFFT"] = []
 
-    import pyfftw
-    from anyFFT import FFT, FFTW_MEASURE
+    successful_sizes = []
 
     for N in sizes:
         shape = (N, N, N)
@@ -121,7 +132,7 @@ def run_cpu_benchmark(sizes, dtype_np, dtype_str, iterations=10):
         print(f"\n{CYAN}--- Benchmarking shape {shape} ---{RESET}")
         successful_sizes.append(N)
 
-        print(f"  {'-> NumPy...':<15}", end="", flush=True)
+        print(f"  {'-> NumPy...':<30}", end="", flush=True)
         data_np = (np.random.rand(*shape) + 1j * np.random.rand(*shape)).astype(dtype_np)
 
         def run_numpy():
@@ -132,7 +143,8 @@ def run_cpu_benchmark(sizes, dtype_np, dtype_str, iterations=10):
         print(f" {iterations} iters in {GREEN}{elapsed:.8f} s{RESET}")
 
         if DEPS["pyfftw"]:
-            print(f"  {'-> pyFFTW...':<15}", end="", flush=True)
+            import pyfftw
+            print(f"  {'-> pyFFTW...':<30}", end="", flush=True)
             data_align = pyfftw.empty_aligned(shape, dtype=dtype_np)
             data_align[:] = (np.random.rand(*shape) + 1j * np.random.rand(*shape)).astype(dtype_np)
 
@@ -148,8 +160,14 @@ def run_cpu_benchmark(sizes, dtype_np, dtype_str, iterations=10):
             print(f" {iterations} iters in {GREEN}{elapsed:.8f} s{RESET}")
 
         if DEPS["anyfft_fftw"]:
-            print(f"  {'-> anyFFT...':<15}", end="", flush=True)
-            data_align = pyfftw.empty_aligned(shape, dtype=dtype_np) if DEPS["pyfftw"] else np.empty(shape, dtype=dtype_np)
+            from anyFFT import FFT, FFTW_MEASURE
+            print(f"  {'-> anyFFT (FFTW)...':<30}", end="", flush=True)
+            if DEPS["pyfftw"]:
+                import pyfftw
+                data_align = pyfftw.empty_aligned(shape, dtype=dtype_np)
+            else:
+                data_align = np.empty(shape, dtype=dtype_np)
+
             data_align[:] = (np.random.rand(*shape) + 1j * np.random.rand(*shape)).astype(dtype_np)
 
             plan_fwd = FFT(shape=shape, input=data_align, output=data_align, dtype=dtype_str, backend="fftw", threads=1, flags=FFTW_MEASURE)
@@ -170,7 +188,16 @@ def run_gpu_benchmark(sizes, dtype_np, dtype_str, iterations=25):
     print(f"{CYAN}GPU Benchmark | {dtype_str}{RESET}")
     print(f"{CYAN}{'='*60}{RESET}")
 
-    results = {"CuPy": [], "anyFFT": []}
+    gpufft_label = "anyFFT (gpuFFT)"
+    results = {"CuPy": []}
+
+    if DEPS["anyfft_cufft"]:
+        gpufft_label = "anyFFT (cuFFT)"
+    elif DEPS["anyfft_hipfft"]:
+        gpufft_label = "anyFFT (hipFFT)"
+
+    results[gpufft_label] = []
+
     successful_sizes = []
 
     import cupy as cp
@@ -181,7 +208,7 @@ def run_gpu_benchmark(sizes, dtype_np, dtype_str, iterations=25):
 
         try:
             ensure_vram(N, dtype_np)
-        except cp.cuda.memory.OutOfMemoryError as e:
+        except MemoryError as e:
             print(f"\n  {YELLOW}[!] {e} Stopping GPU benchmark for this precision.{RESET}")
             cp.get_default_memory_pool().free_all_blocks()
             break
@@ -189,7 +216,7 @@ def run_gpu_benchmark(sizes, dtype_np, dtype_str, iterations=25):
         print(f"\n{CYAN}--- Benchmarking shape {shape} ---{RESET}")
         successful_sizes.append(N)
 
-        print(f"  {'-> CuPy...':<15}", end="", flush=True)
+        print(f"  {'-> CuPy...':<30}", end="", flush=True)
         data_dev = (cp.random.rand(*shape) + 1j * cp.random.rand(*shape)).astype(dtype_np)
 
         def run_cupy():
@@ -201,22 +228,28 @@ def run_gpu_benchmark(sizes, dtype_np, dtype_str, iterations=25):
         results["CuPy"].append(elapsed / iterations)
         print(f" {iterations} iters in {GREEN}{elapsed:.8f} s{RESET}")
 
-        if DEPS["anyfft_cufft"]:
-            print(f"  {'-> anyFFT...':<15}", end="", flush=True)
+        if DEPS["anyfft_cufft"] or DEPS["anyfft_hipfft"]:
+            print_str = f"-> {gpufft_label}..."
+            print(f"  {print_str:<30}", end="", flush=True)
             data_dev = (cp.random.rand(*shape) + 1j * cp.random.rand(*shape)).astype(dtype_np)
 
-            plan_fwd = FFT(shape=shape, input=data_dev, output=data_dev, dtype=dtype_str, backend="cufft")
-            plan_bwd = FFT(shape=shape, input=data_dev, output=data_dev, dtype=dtype_str, backend="cufft")
+            plan_fwd_gpu = FFT(shape=shape, input=data_dev, output=data_dev, dtype=dtype_str, backend="gpufft")
+            plan_bwd_gpu = FFT(shape=shape, input=data_dev, output=data_dev, dtype=dtype_str, backend="gpufft")
 
-            def run_anyfft_gpu():
-                plan_fwd.forward(data_dev, data_dev)
-                plan_bwd.backward(data_dev, data_dev)
+            def run_anyfft_gpufft():
+                plan_fwd_gpu.forward(data_dev, data_dev)
+                plan_bwd_gpu.backward(data_dev, data_dev)
 
-            run_anyfft_gpu() # Warmup
+            run_anyfft_gpufft() # Warmup
 
-            elapsed = measure_time(run_anyfft_gpu, iterations, is_gpu=True)
-            results["anyFFT"].append(elapsed / iterations)
+            elapsed = measure_time(run_anyfft_gpufft, iterations, is_gpu=True)
+            results[gpufft_label].append(elapsed / iterations)
             print(f" {iterations} iters in {GREEN}{elapsed:.8f} s{RESET}")
+
+        data_dev = None
+        plan_fwd_gpu = None
+        plan_bwd_gpu = None
+        cp.get_default_memory_pool().free_all_blocks()
 
     return successful_sizes, results
 
@@ -238,15 +271,13 @@ def generate_plot(sizes, times_dict, title_prefix, file_path):
     colors = ["red", "orange", "blue", "green", "purple"]
     styles = ["o--", "s-", "^-", "*-", "x-"]
 
-    anyfft_idx = labels.index("anyFFT") if "anyFFT" in labels else -1
-
     # Plot 1: Absolute Times
     ax1.set_title(f"{title_prefix} Execution Time")
     ax1.set_ylabel("Time per Round-Trip (s)")
     ax1.set_yscale("log")
 
     for i, (label, times) in enumerate(times_dict.items()):
-        ax1.plot(sizes, times, styles[i], label=label, color=colors[i], linewidth=2 if label == "anyFFT" else 1.5)
+        ax1.plot(sizes, times, styles[i % len(styles)], label=label, color=colors[i % len(colors)], linewidth=2 if "anyFFT" in label else 1.5)
 
     ax1.legend()
     format_x_axis(ax1, sizes)
@@ -257,17 +288,26 @@ def generate_plot(sizes, times_dict, title_prefix, file_path):
     ax2.set_yscale("log")
     ax2.axhline(y=1, color='black', linestyle=':', alpha=0.6, label='Baseline (1x)')
 
-    if anyfft_idx != -1 and times_dict.get("anyFFT"):
-        t_any = np.array(times_dict["anyFFT"])
-        print()
-        for i, (label, times) in enumerate(times_dict.items()):
-            if label != "anyFFT":
-                speedup = np.array(times) / t_any
-                ax2.plot(sizes, speedup, styles[i], label=f"anyFFT vs {label}", color=colors[i])
-                print(f"  Average anyFFT speedup vs {label}: {GREEN}{np.mean(speedup):.2f}x{RESET}")
+    # Identify competitors (NumPy/pyFFTW/CuPy) and targets (anyFFT variants)
+    competitors = [lbl for lbl in labels if "anyFFT" not in lbl]
+    targets = [lbl for lbl in labels if "anyFFT" in lbl]
 
-        if ax2.get_legend_handles_labels()[0]:
-            ax2.legend()
+    print(f"\n{CYAN}Speedups for {title_prefix}:{RESET}")
+    plot_idx = 0
+    for target in targets:
+        t_target = np.array(times_dict[target])
+        for comp in competitors:
+            t_comp = np.array(times_dict[comp])
+
+            speedup = t_comp / t_target
+
+            line_label = f"{target} vs {comp}"
+            ax2.plot(sizes, speedup, styles[plot_idx % len(styles)], label=line_label, color=colors[plot_idx % len(colors)])
+            print(f"  Average {line_label} speedup: {GREEN}{np.mean(speedup):.2f}x{RESET}")
+            plot_idx += 1
+
+    if ax2.get_legend_handles_labels()[0]:
+        ax2.legend()
 
     format_x_axis(ax2, sizes)
 
@@ -293,8 +333,8 @@ def main():
     )
     args = parser.parse_args()
 
-    if not (DEPS["pyfftw"] and DEPS["anyfft_fftw"]) and not (DEPS["cupy"] and DEPS["anyfft_cufft"]):
-        print(f"{RED}CRITICAL: Minimum requirements for CPU or GPU benchmarking not met. Exiting.{RESET}")
+    if not DEPS["anyfft_fftw"] and not (DEPS["cupy"] and (DEPS["anyfft_cufft"] or DEPS["anyfft_hipfft"])):
+        print(f"{RED}CRITICAL: Minimum requirements for benchmarking (anyFFT backends) not met. Exiting.{RESET}")
         sys.exit(1)
 
     sizes = []
@@ -322,19 +362,21 @@ def main():
     plots_dir = Path.cwd() / "plots"
     plots_dir.mkdir(parents=True, exist_ok=True)
 
+    print(f"{CYAN}{'='*60}\nanyFFT Benchmarking\n{'='*60}{RESET}")
+
     print(f"\n{CYAN}Outputs will be saved to: {plots_dir.resolve()}{RESET}")
     print(f"{CYAN}Testing Grid Sizes: {sizes}{RESET}")
     print(f"{CYAN}Testing Precision: {args.precision}{RESET}")
 
     for dtype_np, dtype_str, label in precisions:
 
-        if DEPS["pyfftw"] and DEPS["anyfft_fftw"]:
+        if DEPS["anyfft_fftw"]:
             s_sizes, plot_data = run_cpu_benchmark(sizes, dtype_np, dtype_str)
             if s_sizes:
                 output_file = plots_dir / f"cpu_results_{dtype_str}.png"
                 generate_plot(s_sizes, plot_data, f"CPU {label}", output_file)
 
-        if DEPS["cupy"] and DEPS["anyfft_cufft"]:
+        if DEPS["cupy"] and (DEPS["anyfft_cufft"] or DEPS["anyfft_hipfft"]):
             s_sizes, plot_data = run_gpu_benchmark(sizes, dtype_np, dtype_str)
             if s_sizes:
                 output_file = plots_dir / f"gpu_results_{dtype_str}.png"

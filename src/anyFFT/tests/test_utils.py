@@ -1,3 +1,10 @@
+"""
+anyFFT
+Copyright (C) 2026 5hashN
+All Rights Reserved.
+Demonstration only. No license granted.
+"""
+
 import numpy as np
 import sys
 

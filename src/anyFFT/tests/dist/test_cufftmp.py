@@ -1,3 +1,10 @@
+"""
+anyFFT
+Copyright (C) 2026 5hashN
+All Rights Reserved.
+Demonstration only. No license granted.
+"""
+
 from mpi4py import MPI
 import numpy as np
 import cupy as cp
@@ -16,7 +23,7 @@ except ImportError:
 
 comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
-BACKEND = "cufft"
+BACKEND = "cufftmp"
 
 
 def test_c2c_in_place(real_dtype_str, global_shape, ndim):

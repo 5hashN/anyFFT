@@ -8,19 +8,24 @@ Demonstration only. No license granted.
 from typing import Optional, Sequence, Union, Any
 
 _HAS_FFTW = False
-_HAS_FFTW_MPI = False
-_HAS_CUDA = False
-_HAS_CUDA_MPI = False
+_HAS_FFTW_DIST = False
+
+_HAS_GPUFFT = False
+_HAS_CUFFT = False
+_HAS_HIPFFT = False
+_gpu_backend = None
+
+_HAS_CUFFT_DIST = False
 
 try:
-    from ._core import fftw_serial
+    from ._core import fftw
     _HAS_FFTW = True
 except ImportError:
     pass
 
 try:
     from ._core import fftw_mpi
-    _HAS_FFTW_MPI = True
+    _HAS_FFTW_DIST = True
 except ImportError:
     pass
 
@@ -33,14 +38,24 @@ except ImportError:
     FFTW_EXHAUSTIVE = 8
 
 try:
-    from ._core import cufft_serial
-    _HAS_CUDA = True
+    from ._core import get_gpu_backend_name
+    _gpu_backend = get_gpu_backend_name().lower()
+    if _gpu_backend == "cufft":
+        _HAS_CUFFT = True
+    elif _gpu_backend == "hipfft":
+        _HAS_HIPFFT = True
 except ImportError:
     pass
 
 try:
-    from ._core import cufft_mpi
-    _HAS_CUDA_MPI = True
+    from ._core import gpufft
+    _HAS_GPUFFT = True
+except ImportError:
+    pass
+
+try:
+    from ._core import cufftmp
+    _HAS_CUFFT_DIST = True
 except ImportError:
     pass
 
@@ -49,36 +64,54 @@ __all__ = ["FFT", "fft", "ifft"]
 
 __backends__ = []
 if _HAS_FFTW:
-    __backends__.extend(["fftw_serial"])
-if _HAS_FFTW_MPI:
+    __backends__.extend(["fftw"])
+if _HAS_FFTW_DIST:
     __backends__.extend(["fftw_mpi"])
-if _HAS_CUDA:
-    __backends__.extend(["cufft_serial"])
-if _HAS_CUDA_MPI:
-    __backends__.extend(["cufft_mpi"])
+
+if _HAS_GPUFFT:
+    __backends__.extend(["gpufft"])
+
+if _HAS_CUFFT_DIST:
+    __backends__.extend(["cufftmp"])
 
 __all__.extend(__backends__)
+
 
 def has_backend(backend_name):
     """
     Checks if a specific backend is compiled and available.
 
     Args:
-        backend_name (str): 'fftw', 'fftw_mpi', 'cufft', 'cufft_mpi'.
+        backend_name (str): 'fftw', 'fftw_mpi', 'cufft', 'cufftmp', 'gpufft'.
 
     Returns:
         bool: True if available, False otherwise.
     """
+    backend_name = backend_name.lower()
+
+
     if backend_name == "fftw":
         return _HAS_FFTW
     if backend_name == "fftw_mpi":
-        return _HAS_FFTW_MPI
+        return _HAS_FFTW_DIST
+
     if backend_name == "cufft":
-        return _HAS_CUDA
-    if backend_name == "cufft_mpi":
-        return _HAS_CUDA_MPI
+        return _HAS_CUFFT
+    if backend_name == "hipfft":
+        return _HAS_HIPFFT
+    if backend_name == "gpufft":
+        return _HAS_GPUFFT
+
+    if backend_name == "cufftmp":
+        return _HAS_CUFFT_DIST
+
     return False
 
+def get_gpu_backend_name() -> str:
+    """
+    Returns the name of the active unified GPU backend (e.g., 'cufft' or 'hipfft').
+    """
+    return str(_gpu_backend)
 
 # Context Manager
 class FFTPlan:
@@ -132,7 +165,7 @@ def FFT(
         input (array, optional): Input array (Required for FFTW planning).
         output (array, optional): Output array (Required for FFTW planning).
         dtype (str): 'float32', 'float64', 'complex64', or 'complex128'.
-        backend (str): 'fftw', 'fftw_mpi', 'cufft', or 'cufft_mpi'.
+        backend (str): 'fftw', 'fftw_mpi', 'cufft', or 'cufftmp'.
         comm (mpi4py.MPI.Comm, optional): MPI Communicator (Required for MPI backends).
         grid (list/tuple, optional): Process grid [p0, p1] for Slab/Pencil decomposition. Defaults to None (1D Slab). (cufft_mpi backend only).
         threads (int, optional): Number of OpenMP threads to use (fftw backend only). Defaults to 1.
@@ -179,43 +212,45 @@ def FFT(
 
 
     backend_obj = None
-    if backend == "fftw":
+    if backend in ["fftw", "fftw_mpi"]:
         if flags is None:
             flags = FFTW_ESTIMATE
 
         if comm is None:
             if not _HAS_FFTW:
-                raise RuntimeError("anyFFT was compiled without FFTW support.")
+                raise RuntimeError("anyFFT was compiled without FFTW.")
 
             if input is None or output is None:
                 raise ValueError("The 'fftw' backend requires 'input' and 'output' dummy arrays to create a plan.")
 
-            backend_obj = fftw_serial(shape, axes, input, output, dtype, threads, flags)
+            backend_obj = fftw(shape, axes, input, output, dtype, threads, flags)
 
         else:
-            if not _HAS_FFTW_MPI:
-                raise RuntimeError("anyFFT was compiled without FFTW-MPI support.")
+            if not _HAS_FFTW_DIST:
+                raise RuntimeError("anyFFT was compiled without FFTW-MPI.")
 
             if input is None or output is None:
-                raise ValueError("The 'fftw_mpi' backend requires 'input' and 'output' (local) arrays to create a plan.")
+                raise ValueError("The 'fftw_mpi' backend requires 'input' and 'output' local arrays to create a plan.")
 
             backend_obj = fftw_mpi(shape, input, output, dtype, comm_handle)
 
-    elif backend == "cufft":
+    elif backend in ["cufft", "hipfft", "gpufft"]:
+        if not _HAS_GPUFFT:
+            raise RuntimeError("anyFFT was compiled without unified GPU backend.")
+
+        backend_obj = gpufft(shape, axes, dtype)
+
+    elif backend == "cufftmp":
         if comm is None:
-            if not _HAS_CUDA:
-                raise RuntimeError("anyFFT was compiled without CUDA support.")
+            raise ValueError("The 'cufftmp' backend requires an MPI communicator.")
 
-            backend_obj = cufft_serial(shape, axes, dtype)
+        if not _HAS_CUFFT_DIST:
+            raise RuntimeError("anyFFT was compiled without cuFFTMp.")
 
-        else:
-            if not _HAS_CUDA_MPI:
-                raise RuntimeError("anyFFT was compiled without CUDA support.")
+        if input is None or output is None:
+            raise ValueError("The 'cufftmp' backend requires 'input' and 'output' arrays to check for In-Place/Out-of-Place consistency.")
 
-            if input is None or output is None:
-                raise ValueError("The 'cufft_mpi' backend requires 'input' and 'output' arrays to check for In-Place/Out-of-Place consistency.")
-
-            backend_obj = cufft_mpi(shape, grid, input, output, dtype, comm_handle)
+        backend_obj = cufftmp(shape, grid, input, output, dtype, comm_handle)
 
     else:
         raise ValueError(f"Unknown backend type: '{backend}'. Available: {__backends__}")
@@ -224,7 +259,13 @@ def FFT(
 
 
 # Functional Helpers
-def fft(a: Any, out: Optional[Any] = None, axes: Optional[Sequence[int]] = None, backend: str = "fftw", comm: Optional[Any] = None) -> Any:
+def fft(
+    a: Any,
+    out: Optional[Any] = None,
+    axes: Optional[Sequence[int]] = None,
+    backend: str = "fftw",
+    comm: Optional[Any] = None
+    ) -> Any:
     """Perform a one-off forward FFT."""
     if out is None:
         raise ValueError("anyFFT requires explicit 'out' array for functional API to determine types.")
@@ -236,7 +277,13 @@ def fft(a: Any, out: Optional[Any] = None, axes: Optional[Sequence[int]] = None,
     plan.forward(a, out)
     return out
 
-def ifft(a: Any, out: Optional[Any] = None, axes: Optional[Sequence[int]] = None, backend: str = "fftw", comm: Optional[Any] = None) -> Any:
+def ifft(
+    a: Any,
+    out: Optional[Any] = None,
+    axes: Optional[Sequence[int]] = None,
+    backend: str = "fftw",
+    comm: Optional[Any] = None
+    ) -> Any:
     """Perform a one-off backward FFT."""
     if out is None:
         raise ValueError("anyFFT requires explicit 'out' array for functional API to determine types.")

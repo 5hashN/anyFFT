@@ -5,20 +5,20 @@ All Rights Reserved.
 Demonstration only. No license granted.
 */
 
-#include "anyfft/cufft_serial.cuh"
+#include "anyfft/gpu/gpufft.cuh"
 
 // Helper Macros
-#define CUDA_CHECK(call) { \
-    cudaError_t err = call; \
-    if (err != cudaSuccess) throw std::runtime_error("CUDA Error: " + std::string(cudaGetErrorString(err))); \
+#define GPU_CHECK(call) { \
+    gpufftError_t err = call; \
+    if (err != GPUFFT_RUNTIME_SUCCESS) throw std::runtime_error("GPU Error: " + std::string(gpufftGetErrorString(err))); \
 }
-#define CUFFT_CHECK(call) { \
-    cufftResult err = call; \
-    if (err != CUFFT_SUCCESS) throw std::runtime_error("cuFFT Error: " + std::to_string(err)); \
+#define FFT_CHECK(call) { \
+    gpufftResult err = call; \
+    if (err != GPUFFT_SUCCESS) throw std::runtime_error("FFT Error: " + std::to_string(err)); \
 }
 
 // Helper: Get strides from CuPy object in elements
-std::vector<int> get_cupy_strides(py::object arr) {
+inline std::vector<int> get_cupy_strides(py::object arr) {
     std::vector<int> strides;
     py::tuple s = arr.attr("strides");
     int itemsize = arr.attr("itemsize").cast<int>();
@@ -28,28 +28,20 @@ std::vector<int> get_cupy_strides(py::object arr) {
     return strides;
 }
 
-static bool is_contiguous_axes(int ndim, const std::vector<int>& axes) {
-    if (axes.empty()) return false;
-    for (size_t i = 0; i < axes.size(); ++i) {
-        if (axes[i] != (ndim - axes.size() + i)) return false;
-    }
-    return true;
-}
-
-class CUFFT_C2C_Impl : public FFTBase {
-    cufftHandle plan_;
+class GPUFFT_LOCAL_C2C : public FFTBase {
+    gpufftHandle plan_;
     ssize_t N_;
     std::string dtype_;
     int ndim_;
 public:
-    CUFFT_C2C_Impl(int ndim, const std::vector<int>& shape, std::string dtype)
+    GPUFFT_LOCAL_C2C(int ndim, const std::vector<int>& shape, std::string dtype)
         : N_(1), dtype_(dtype), ndim_(ndim) {
         for (int s : shape) N_ *= s;
 
-        CUFFT_CHECK(cufftCreate(&plan_));
-        cufftType t_c2c = (dtype_ == "complex128") ? CUFFT_Z2Z : CUFFT_C2C;
+        FFT_CHECK(gpufftCreate(&plan_));
+        gpufftType t_c2c = (dtype_ == "complex128") ? GPUFFT_Z2Z : GPUFFT_C2C;
         std::vector<int> n(shape.begin(), shape.end());
-        CUFFT_CHECK(cufftPlanMany(&plan_, ndim_, n.data(), nullptr, 1, 0, nullptr, 1, 0, t_c2c, 1));
+        FFT_CHECK(gpufftPlanMany(&plan_, ndim_, n.data(), nullptr, 1, 0, nullptr, 1, 0, t_c2c, 1));
     }
 
     void forward(py::object in, py::object out) override {
@@ -58,8 +50,8 @@ public:
 
         {
             py::gil_scoped_release release;
-            if (dtype_ == "complex128") CUFFT_CHECK(cufftExecZ2Z(plan_, (cufftDoubleComplex*)i_ptr, (cufftDoubleComplex*)o_ptr, CUFFT_FORWARD))
-            else CUFFT_CHECK(cufftExecC2C(plan_, (cufftComplex*)i_ptr, (cufftComplex*)o_ptr, CUFFT_FORWARD));
+            if (dtype_ == "complex128") FFT_CHECK(gpufftExecZ2Z(plan_, (gpufftDoubleComplex*)i_ptr, (gpufftDoubleComplex*)o_ptr, GPUFFT_FORWARD))
+            else FFT_CHECK(gpufftExecC2C(plan_, (gpufftComplex*)i_ptr, (gpufftComplex*)o_ptr, GPUFFT_FORWARD));
         }
     }
 
@@ -69,38 +61,38 @@ public:
 
         {
             py::gil_scoped_release release;
-            if (dtype_ == "complex128") CUFFT_CHECK(cufftExecZ2Z(plan_, (cufftDoubleComplex*)i_ptr, (cufftDoubleComplex*)o_ptr, CUFFT_INVERSE))
-            else CUFFT_CHECK(cufftExecC2C(plan_, (cufftComplex*)i_ptr, (cufftComplex*)o_ptr, CUFFT_INVERSE));
-            CUDA_CHECK(cudaDeviceSynchronize());
+            if (dtype_ == "complex128") FFT_CHECK(gpufftExecZ2Z(plan_, (gpufftDoubleComplex*)i_ptr, (gpufftDoubleComplex*)o_ptr, GPUFFT_INVERSE))
+            else FFT_CHECK(gpufftExecC2C(plan_, (gpufftComplex*)i_ptr, (gpufftComplex*)o_ptr, GPUFFT_INVERSE));
+            GPU_CHECK(gpufftDeviceSynchronize());
         }
 
         double factor = 1.0 / (double)N_;
         out.attr("__imul__")(factor);
     }
 
-    ~CUFFT_C2C_Impl() {
-        cufftDestroy(plan_);
+    ~GPUFFT_LOCAL_C2C() {
+        gpufftDestroy(plan_);
     }
 };
 
-class CUFFT_R2C_Impl : public FFTBase {
-    cufftHandle plan_r2c_;
-    cufftHandle plan_c2r_;
+class GPUFFT_LOCAL_R2C : public FFTBase {
+    gpufftHandle plan_r2c_;
+    gpufftHandle plan_c2r_;
     ssize_t N_;
     std::string dtype_;
     int ndim_;
 public:
-    CUFFT_R2C_Impl(int ndim, const std::vector<int>& shape, std::string dtype)
+    GPUFFT_LOCAL_R2C(int ndim, const std::vector<int>& shape, std::string dtype)
         : N_(1), dtype_(dtype), ndim_(ndim) {
         for (int s : shape) N_ *= s;
 
-        CUFFT_CHECK(cufftCreate(&plan_r2c_));
-        CUFFT_CHECK(cufftCreate(&plan_c2r_));
-        cufftType t_r2c = (dtype_ == "float64") ? CUFFT_D2Z : CUFFT_R2C;
-        cufftType t_c2r = (dtype_ == "float64") ? CUFFT_Z2D : CUFFT_C2R;
+        FFT_CHECK(gpufftCreate(&plan_r2c_));
+        FFT_CHECK(gpufftCreate(&plan_c2r_));
+        gpufftType t_r2c = (dtype_ == "float64") ? GPUFFT_D2Z : GPUFFT_R2C;
+        gpufftType t_c2r = (dtype_ == "float64") ? GPUFFT_Z2D : GPUFFT_C2R;
         std::vector<int> n(shape.begin(), shape.end());
-        CUFFT_CHECK(cufftPlanMany(&plan_r2c_, ndim_, n.data(), nullptr, 1, 0, nullptr, 1, 0, t_r2c, 1));
-        CUFFT_CHECK(cufftPlanMany(&plan_c2r_, ndim_, n.data(), nullptr, 1, 0, nullptr, 1, 0, t_c2r, 1));
+        FFT_CHECK(gpufftPlanMany(&plan_r2c_, ndim_, n.data(), nullptr, 1, 0, nullptr, 1, 0, t_r2c, 1));
+        FFT_CHECK(gpufftPlanMany(&plan_c2r_, ndim_, n.data(), nullptr, 1, 0, nullptr, 1, 0, t_c2r, 1));
     }
 
     void forward(py::object in, py::object out) override {
@@ -109,8 +101,8 @@ public:
 
         {
             py::gil_scoped_release release;
-            if (dtype_ == "float64") CUFFT_CHECK(cufftExecD2Z(plan_r2c_, (cufftDoubleReal*)r_ptr, (cufftDoubleComplex*)c_ptr))
-            else CUFFT_CHECK(cufftExecR2C(plan_r2c_, (cufftReal*)r_ptr, (cufftComplex*)c_ptr));
+            if (dtype_ == "float64") FFT_CHECK(gpufftExecD2Z(plan_r2c_, (gpufftDoubleReal*)r_ptr, (gpufftDoubleComplex*)c_ptr))
+            else FFT_CHECK(gpufftExecR2C(plan_r2c_, (gpufftReal*)r_ptr, (gpufftComplex*)c_ptr));
         }
     }
 
@@ -120,28 +112,28 @@ public:
 
         {
             py::gil_scoped_release release;
-            if (dtype_ == "float64") CUFFT_CHECK(cufftExecZ2D(plan_c2r_, (cufftDoubleComplex*)c_ptr, (cufftDoubleReal*)r_ptr))
-            else CUFFT_CHECK(cufftExecC2R(plan_c2r_, (cufftComplex*)c_ptr, (cufftReal*)r_ptr));
-            CUDA_CHECK(cudaDeviceSynchronize());
+            if (dtype_ == "float64") FFT_CHECK(gpufftExecZ2D(plan_c2r_, (gpufftDoubleComplex*)c_ptr, (gpufftDoubleReal*)r_ptr))
+            else FFT_CHECK(gpufftExecC2R(plan_c2r_, (gpufftComplex*)c_ptr, (gpufftReal*)r_ptr));
+            GPU_CHECK(gpufftDeviceSynchronize());
         }
 
         double factor = 1.0 / (double)N_;
         out.attr("__imul__")(factor);
     }
 
-    ~CUFFT_R2C_Impl() {
-        cufftDestroy(plan_r2c_);
-        cufftDestroy(plan_c2r_);
+    ~GPUFFT_LOCAL_R2C() {
+        gpufftDestroy(plan_r2c_);
+        gpufftDestroy(plan_c2r_);
     }
 };
 
-class CUFFT_Generic : public FFTBase {
+class GPUFFT_LOCAL_Generic : public FFTBase {
     int ndim_;
     std::vector<int> shape_;
     std::vector<int> axes_;
     std::string dtype_;
 
-    cufftHandle plan_ = 0;
+    gpufftHandle plan_ = 0;
     bool plan_valid_ = false;
 
     struct PlanConfig {
@@ -151,21 +143,21 @@ class CUFFT_Generic : public FFTBase {
         std::vector<int> inembed;
         int ostride = 1, odist = 1;
         std::vector<int> onembed;
-        cufftType type;
+        gpufftType type;
         bool is_inplace = false;
         long long logical_size = 1;
     } current_config_;
 
 public:
-    CUFFT_Generic(const std::vector<int>& shape, const std::vector<int>& axes, const std::string& dtype)
+    GPUFFT_LOCAL_Generic(const std::vector<int>& shape, const std::vector<int>& axes, const std::string& dtype)
         : shape_(shape), axes_(axes), dtype_(dtype)
     {
         std::sort(axes_.begin(), axes_.end());
         ndim_ = axes_.size();
     }
 
-    ~CUFFT_Generic() {
-        if (plan_valid_) cufftDestroy(plan_);
+    ~GPUFFT_LOCAL_Generic() {
+        if (plan_valid_) gpufftDestroy(plan_);
     }
 
     bool check_contiguous_axes() {
@@ -176,9 +168,9 @@ public:
         return true;
     }
 
-    void ensure_plan(py::object in, py::object out, cufftType requested_type) {
+    void ensure_plan(py::object in, py::object out, gpufftType requested_type) {
         if (!check_contiguous_axes()) {
-            throw std::runtime_error("cuFFT Generic: Transform axes must be contiguous indices (e.g., [0,1] or [1,2]). Split axes (e.g. [0,2]) are not supported.");
+            throw std::runtime_error("GPUFFT Generic: Transform axes must be contiguous indices (e.g., [0,1] or [1,2]). Split axes (e.g. [0,2]) are not supported.");
         }
 
         PlanConfig new_config;
@@ -200,21 +192,16 @@ public:
         int rank = new_config.n.size();
 
         int full_rank = shape_.size();
-
         bool is_outer_batch = (axes_.back() == full_rank - 1);
-
         bool is_inner_batch = (axes_.front() == 0);
 
         if (is_outer_batch) {
-            // Outer Batching (Batch dims ... Transform dims)
             new_config.batch = 1;
             for(int i=0; i < axes_.front(); ++i) new_config.batch *= shape_[i];
 
-            // Transform Strides: The stride of the LAST axis
             new_config.istride = in_strides.back();
             new_config.ostride = out_strides.back();
 
-            // Distance: The stride of the LAST BATCH axis (axis immediately before transform)
             if (new_config.batch > 1) {
                 new_config.idist = in_strides[axes_.front() - 1];
                 new_config.odist = out_strides[axes_.front() - 1];
@@ -224,24 +211,19 @@ public:
             }
 
         } else if (is_inner_batch) {
-            // Inner Batching (Transform dims ... Batch dims)
             new_config.batch = 1;
             for(size_t i = axes_.back() + 1; i < full_rank; ++i) new_config.batch *= shape_[i];
 
-            // Transform Strides: Stride of the last transform axis (which is NOT 1 here!)
             new_config.istride = in_strides[axes_.back()];
             new_config.ostride = out_strides[axes_.back()];
 
-            // Distance: Stride of the FIRST batch axis (immediately after transform)
             new_config.idist = in_strides[axes_.back() + 1];
             new_config.odist = out_strides[axes_.back() + 1];
 
         } else {
-            // Middle Batching (Batch ... Transform ... Batch) - Not Supported
-            throw std::runtime_error("cuFFT Generic: Transform axes must be at the start or end of the array. Middle transforms (e.g. shape (A,B,C), axis B) with surrounding batches are not supported.");
+            throw std::runtime_error("GPUFFT Generic: Transform axes must be at the start or end of the array. Middle transforms (e.g. shape (A,B,C), axis B) with surrounding batches are not supported.");
         }
 
-        // Set Embed (Must match transform dims)
         new_config.inembed = new_config.n;
         new_config.onembed = new_config.n;
 
@@ -255,9 +237,9 @@ public:
             new_config.inembed != current_config_.inembed ||
             new_config.is_inplace != current_config_.is_inplace)
         {
-            if (plan_valid_) cufftDestroy(plan_);
-            CUFFT_CHECK(cufftCreate(&plan_));
-            CUFFT_CHECK(cufftPlanMany(&plan_,
+            if (plan_valid_) gpufftDestroy(plan_);
+            FFT_CHECK(gpufftCreate(&plan_));
+            FFT_CHECK(gpufftPlanMany(&plan_,
                                       rank, new_config.n.data(),
                                       new_config.inembed.data(), new_config.istride, new_config.idist,
                                       new_config.onembed.data(), new_config.ostride, new_config.odist,
@@ -270,8 +252,8 @@ public:
     void forward(py::object in, py::object out) override {
         bool is_double = (dtype_ == "float64" || dtype_ == "complex128");
         bool is_c2c = (dtype_ == "complex64" || dtype_ == "complex128");
-        cufftType type = is_c2c ? (is_double ? CUFFT_Z2Z : CUFFT_C2C)
-                                : (is_double ? CUFFT_D2Z : CUFFT_R2C);
+        gpufftType type = is_c2c ? (is_double ? GPUFFT_Z2Z : GPUFFT_C2C)
+                                : (is_double ? GPUFFT_D2Z : GPUFFT_R2C);
 
         ensure_plan(in, out, type);
 
@@ -281,10 +263,10 @@ public:
         {
             py::gil_scoped_release release;
             switch (current_config_.type) {
-                case CUFFT_Z2Z: CUFFT_CHECK(cufftExecZ2Z(plan_, (cufftDoubleComplex*)i_ptr, (cufftDoubleComplex*)o_ptr, CUFFT_FORWARD)); break;
-                case CUFFT_C2C: CUFFT_CHECK(cufftExecC2C(plan_, (cufftComplex*)i_ptr, (cufftComplex*)o_ptr, CUFFT_FORWARD)); break;
-                case CUFFT_D2Z: CUFFT_CHECK(cufftExecD2Z(plan_, (cufftDoubleReal*)i_ptr, (cufftDoubleComplex*)o_ptr)); break;
-                case CUFFT_R2C: CUFFT_CHECK(cufftExecR2C(plan_, (cufftReal*)i_ptr, (cufftComplex*)o_ptr)); break;
+                case GPUFFT_Z2Z: FFT_CHECK(gpufftExecZ2Z(plan_, (gpufftDoubleComplex*)i_ptr, (gpufftDoubleComplex*)o_ptr, GPUFFT_FORWARD)); break;
+                case GPUFFT_C2C: FFT_CHECK(gpufftExecC2C(plan_, (gpufftComplex*)i_ptr, (gpufftComplex*)o_ptr, GPUFFT_FORWARD)); break;
+                case GPUFFT_D2Z: FFT_CHECK(gpufftExecD2Z(plan_, (gpufftDoubleReal*)i_ptr, (gpufftDoubleComplex*)o_ptr)); break;
+                case GPUFFT_R2C: FFT_CHECK(gpufftExecR2C(plan_, (gpufftReal*)i_ptr, (gpufftComplex*)o_ptr)); break;
                 default: break;
             }
         }
@@ -293,8 +275,8 @@ public:
     void backward(py::object in, py::object out) override {
         bool is_double = (dtype_ == "float64" || dtype_ == "complex128");
         bool is_c2c = (dtype_ == "complex64" || dtype_ == "complex128");
-        cufftType type = is_c2c ? (is_double ? CUFFT_Z2Z : CUFFT_C2C)
-                                : (is_double ? CUFFT_Z2D : CUFFT_C2R);
+        gpufftType type = is_c2c ? (is_double ? GPUFFT_Z2Z : GPUFFT_C2C)
+                                : (is_double ? GPUFFT_Z2D : GPUFFT_C2R);
 
         ensure_plan(in, out, type);
 
@@ -304,13 +286,13 @@ public:
         {
             py::gil_scoped_release release;
             switch (current_config_.type) {
-                case CUFFT_Z2Z: CUFFT_CHECK(cufftExecZ2Z(plan_, (cufftDoubleComplex*)i_ptr, (cufftDoubleComplex*)o_ptr, CUFFT_INVERSE)); break;
-                case CUFFT_C2C: CUFFT_CHECK(cufftExecC2C(plan_, (cufftComplex*)i_ptr, (cufftComplex*)o_ptr, CUFFT_INVERSE)); break;
-                case CUFFT_Z2D: CUFFT_CHECK(cufftExecZ2D(plan_, (cufftDoubleComplex*)i_ptr, (cufftDoubleReal*)o_ptr)); break;
-                case CUFFT_C2R: CUFFT_CHECK(cufftExecC2R(plan_, (cufftComplex*)i_ptr, (cufftReal*)o_ptr)); break;
+                case GPUFFT_Z2Z: FFT_CHECK(gpufftExecZ2Z(plan_, (gpufftDoubleComplex*)i_ptr, (gpufftDoubleComplex*)o_ptr, GPUFFT_INVERSE)); break;
+                case GPUFFT_C2C: FFT_CHECK(gpufftExecC2C(plan_, (gpufftComplex*)i_ptr, (gpufftComplex*)o_ptr, GPUFFT_INVERSE)); break;
+                case GPUFFT_Z2D: FFT_CHECK(gpufftExecZ2D(plan_, (gpufftDoubleComplex*)i_ptr, (gpufftDoubleReal*)o_ptr)); break;
+                case GPUFFT_C2R: FFT_CHECK(gpufftExecC2R(plan_, (gpufftComplex*)i_ptr, (gpufftReal*)o_ptr)); break;
                 default: break;
             }
-            CUDA_CHECK(cudaDeviceSynchronize());
+            GPU_CHECK(gpufftDeviceSynchronize());
         }
 
         double factor = 1.0 / (double)current_config_.logical_size;
@@ -318,7 +300,7 @@ public:
     }
 };
 
-CUFFT_SERIAL::CUFFT_SERIAL(const std::vector<int>& shape,
+GPUFFT_LOCAL::GPUFFT_LOCAL(const std::vector<int>& shape,
                            const std::vector<int>& axes, const std::string& dtype)
 {
     bool use_hardcoded = false;
@@ -326,7 +308,6 @@ CUFFT_SERIAL::CUFFT_SERIAL(const std::vector<int>& shape,
         use_hardcoded = true;
     } else {
         if (axes.size() == shape.size()) {
-            // Check if axes are [0, 1, 2...]
             bool sorted = true;
             std::vector<int> sorted_axes = axes;
             std::sort(sorted_axes.begin(), sorted_axes.end());
@@ -341,15 +322,14 @@ CUFFT_SERIAL::CUFFT_SERIAL(const std::vector<int>& shape,
 
     if (use_hardcoded) {
         if (dtype == "complex128" || dtype == "complex64")
-            impl_ = std::make_unique<CUFFT_C2C_Impl>(ndim, shape, dtype);
+            impl_ = std::make_unique<GPUFFT_LOCAL_C2C>(ndim, shape, dtype);
         else
-            impl_ = std::make_unique<CUFFT_R2C_Impl>(ndim, shape, dtype);
+            impl_ = std::make_unique<GPUFFT_LOCAL_R2C>(ndim, shape, dtype);
     } else {
-        // Fallback to Generic for partial transforms or permutations
-        impl_ = std::make_unique<CUFFT_Generic>(shape, axes, dtype);
+        impl_ = std::make_unique<GPUFFT_LOCAL_Generic>(shape, axes, dtype);
     }
 }
 
-void CUFFT_SERIAL::forward(py::object in, py::object out) { impl_->forward(in, out); }
-void CUFFT_SERIAL::backward(py::object in, py::object out) { impl_->backward(in, out); }
-CUFFT_SERIAL::~CUFFT_SERIAL() = default;
+void GPUFFT_LOCAL::forward(py::object in, py::object out) { impl_->forward(in, out); }
+void GPUFFT_LOCAL::backward(py::object in, py::object out) { impl_->backward(in, out); }
+GPUFFT_LOCAL::~GPUFFT_LOCAL() = default;

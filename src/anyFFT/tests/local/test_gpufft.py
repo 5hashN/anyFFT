@@ -1,3 +1,10 @@
+"""
+anyFFT
+Copyright (C) 2026 5hashN
+All Rights Reserved.
+Demonstration only. No license granted.
+"""
+
 import numpy as np
 import sys
 import os
@@ -6,25 +13,31 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import test_utils
 
 try:
-    from anyFFT import FFT
+    import cupy as cp
+except ImportError:
+    print("Error: CuPy not installed.")
+    sys.exit(1)
+
+try:
+    from anyFFT import FFT, get_gpu_backend_name
 except ImportError:
     print("Error: Could not import 'anyFFT'.")
     sys.exit(1)
 
-BACKEND = "fftw"
+BACKEND = get_gpu_backend_name()
 FAILED_TESTS = []
 TOTAL_TESTS = 0
 PASSED_TESTS = 0
 
 
-def setup_r2c_inplace_buffer(shape, dtype_str, axes=None):
-    real_dtype, complex_dtype = test_utils.get_numpy_types(dtype_str)
+def setup_r2c_inplace_buffer_gpu(shape, dtype_str, axes=None):
+    real_dtype, complex_dtype = test_utils.get_cupy_types(dtype_str)
 
     complex_shape = list(shape)
     target_axis = axes[-1] if axes else -1
     complex_shape[target_axis] = complex_shape[target_axis] // 2 + 1
 
-    buffer_complex = np.zeros(complex_shape, dtype=complex_dtype)
+    buffer_complex = cp.zeros(complex_shape, dtype=complex_dtype)
     buffer_real_view = buffer_complex.view(real_dtype)
 
     slices = [slice(None)] * len(shape)
@@ -34,7 +47,7 @@ def setup_r2c_inplace_buffer(shape, dtype_str, axes=None):
     return buffer_complex, input_real_slice
 
 
-def run_fftw_serial_test(
+def run_gpufft_test(
     label, shape, dtype_str, axes=None, is_r2c=False, is_inplace=False
 ):
     global TOTAL_TESTS, PASSED_TESTS
@@ -43,11 +56,13 @@ def run_fftw_serial_test(
     if is_r2c:
         test_type = "R2C"
         full_dtype_str = dtype_str
-        real_dtype, complex_dtype = test_utils.get_numpy_types(dtype_str)
+        real_dtype_np, _ = test_utils.get_numpy_types(dtype_str)
+        _, complex_dtype_cp = test_utils.get_cupy_types(dtype_str)
     else:
         test_type = "C2C"
         full_dtype_str = test_utils.get_c2c_dtype_str(dtype_str)
-        _, complex_dtype = test_utils.get_numpy_types(dtype_str)
+        _, complex_dtype_np = test_utils.get_numpy_types(dtype_str)
+        _, complex_dtype_cp = test_utils.get_cupy_types(dtype_str)
 
     place_str = "In-Place" if is_inplace else "Out-Place"
     config_str = f"axes={axes}"
@@ -58,36 +73,37 @@ def run_fftw_serial_test(
     )
 
     try:
+        host_data = test_utils.generate_data(
+            shape, real_dtype_np if is_r2c else complex_dtype_np
+        )
+        ref_gpu = cp.asarray(host_data)
+
         if not is_r2c:
-            in_data = test_utils.generate_data(shape, complex_dtype)
             if is_inplace:
-                in_buffer = np.copy(in_data)
+                in_buffer = cp.copy(ref_gpu)
                 out_buffer = in_buffer
-                copy_ref = np.copy(in_data)
             else:
-                in_buffer = in_data
-                out_buffer = np.zeros_like(in_data)
-                copy_ref = in_data
+                in_buffer = ref_gpu
+                out_buffer = cp.zeros_like(ref_gpu)
         else:
-            clean_real_input = test_utils.generate_data(shape, real_dtype)
             if is_inplace:
-                buffer_complex, input_real_slice = setup_r2c_inplace_buffer(
+                buffer_complex, input_real_slice = setup_r2c_inplace_buffer_gpu(
                     shape, dtype_str, axes
                 )
-                np.copyto(input_real_slice, clean_real_input)
+                input_real_slice[:] = ref_gpu
                 in_buffer = input_real_slice
                 out_buffer = buffer_complex
-                copy_ref = clean_real_input
             else:
                 out_shape = list(shape)
                 target_ax = axes[-1] if axes else -1
                 out_shape[target_ax] = out_shape[target_ax] // 2 + 1
-                in_buffer = clean_real_input
-                out_buffer = np.zeros(out_shape, dtype=complex_dtype)
-                copy_ref = clean_real_input
+
+                in_buffer = ref_gpu
+                out_buffer = cp.zeros(out_shape, dtype=complex_dtype_cp)
 
         fft = FFT(
-            shape=shape, axes=axes, input=in_buffer, output=out_buffer,
+            shape=tuple(shape), axes=tuple(axes),
+            input=in_buffer, output=out_buffer,
             dtype=full_dtype_str, backend=BACKEND,
         )
 
@@ -96,21 +112,21 @@ def run_fftw_serial_test(
         if is_r2c:
             if is_inplace:
                 fft.backward(out_buffer, in_buffer)
-                result_data = in_buffer
+                result_gpu = in_buffer
             else:
-                back_buffer = np.zeros_like(in_buffer)
+                back_buffer = cp.zeros_like(in_buffer)
                 fft.backward(out_buffer, back_buffer)
-                result_data = back_buffer
+                result_gpu = back_buffer
         else:
             if is_inplace:
                 fft.backward(out_buffer, out_buffer)
-                result_data = out_buffer
+                result_gpu = out_buffer
             else:
-                back_buffer = np.zeros_like(in_buffer)
+                back_buffer = cp.zeros_like(in_buffer)
                 fft.backward(out_buffer, back_buffer)
-                result_data = back_buffer
+                result_gpu = back_buffer
 
-        diff = np.max(np.abs(copy_ref - result_data))
+        diff = cp.max(cp.abs(ref_gpu - result_gpu)).item()
         tol = 1e-4 if "float32" in dtype_str or "complex64" in dtype_str else 1e-12
 
         passed = test_utils.print_test_result(diff, tol=tol)
@@ -135,18 +151,16 @@ def main():
         {"shape": [16, 32, 32], "axes": [0, 1], "desc": "3D Full"},
         {"shape": [16, 32, 32], "axes": [0, 1, 2], "desc": "3D Full"},
         {"shape": [16, 32, 32], "axes": [], "desc": "3D Full"},
-        {"shape": [4, 8, 32, 32], "axes": [2, 3], "desc": "4D Spatial"},
-        {"shape": [4, 8, 32, 32], "axes": [0, 1, 2, 3], "desc": "4D Full"},
     ]
 
     for sc in scenarios:
         test_utils.print_section(sc['desc'])
         for dtype in ["float64", "float32"]:
-            run_fftw_serial_test("Gen", sc["shape"], dtype, axes=sc["axes"], is_r2c=False, is_inplace=False)
-            run_fftw_serial_test("Gen", sc["shape"], dtype, axes=sc["axes"], is_r2c=False, is_inplace=True)
-            run_fftw_serial_test("Gen", sc["shape"], dtype, axes=sc["axes"], is_r2c=True, is_inplace=False)
+            run_gpufft_test("Gen", sc["shape"], dtype, axes=sc["axes"], is_r2c=False, is_inplace=False)
+            run_gpufft_test("Gen", sc["shape"], dtype, axes=sc["axes"], is_r2c=False, is_inplace=True)
+            run_gpufft_test("Gen", sc["shape"], dtype, axes=sc["axes"], is_r2c=True,  is_inplace=False)
             if not sc["axes"] or ((len(sc["shape"]) - 1) in sc["axes"]):
-                run_fftw_serial_test("Gen", sc["shape"], dtype, axes=sc["axes"], is_r2c=True, is_inplace=True)
+                run_gpufft_test("Gen", sc["shape"], dtype, axes=sc["axes"], is_r2c=True, is_inplace=True)
 
     test_utils.print_summary(TOTAL_TESTS, PASSED_TESTS, FAILED_TESTS)
 

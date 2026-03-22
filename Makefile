@@ -56,7 +56,7 @@ ifeq ($(ENABLE_CUDA), 1)
     ifeq ($(ENABLE_CUDA_MPI), 1)
         CXXFLAGS += -DENABLE_CUDA_MPI
         NVCCFLAGS += -DENABLE_CUDA_MPI
-        SOURCES_CU += cpp/src/cufft/cufft_mpi.cu
+        SOURCES_CU += cpp/src/gpu/cufftmp.cu
 
         # Link against cuFFTMp and NVSHMEM if needed
         LDFLAGS += -lcufftMp -lnvshmem
@@ -81,11 +81,11 @@ endif
 SOURCES_CPP := cpp/src/module.cpp
 
 ifeq ($(ENABLE_FFTW), 1)
-    SOURCES_CPP += cpp/src/fftw/fftw_serial.cpp
+    SOURCES_CPP += cpp/src/cpu/fftw.cpp
 endif
 
 ifeq ($(ENABLE_MPI), 1)
-    SOURCES_CPP += cpp/src/fftw/fftw_mpi.cpp
+    SOURCES_CPP += cpp/src/cpu/fftw_mpi.cpp
 endif
 
 OBJS_CPP := $(SOURCES_CPP:.cpp=.o)
@@ -113,8 +113,8 @@ $(TARGET): $(OBJS_CPP) $(OBJS_CU)
 # Clean
 clean:
 	rm -f $(OBJS_CPP) $(OBJS_CU) $(TARGET)
-	rm -f cpp/src/fftw/*.o cpp/src/cufft/*.o cpp/src/*.o
-	rm -rf build/ dist/ src/*.egg-info
+	rm -f cpp/src/cpu/*.o cpp/src/gpu/*.o cpp/src/*.o
+	rm -rf build/ src/*.egg-info
 	find . -name "*.so" -delete
 	find . -name "__pycache__" -type d -exec rm -rf {} +
 
