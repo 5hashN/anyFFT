@@ -4,7 +4,7 @@
 ![Language](https://img.shields.io/badge/language-C%2B%2B%20%7C%20CUDA%20%7C%20Python-blue)
 ![Backend](https://img.shields.io/badge/backends-FFTW3%20%7C%20CuFFT%20%7C%20MPI-green)
 
-anyFFT is a high-performance Python wrapper for standard FFT libraries, providing a unified interface for Serial and Parallel (MPI) transforms on both CPUs and GPUs. It avoids Python overhead by using `pybind11` for direct memory access and supports distributed memory (MPI) out of the box to expose C++ speed with Python convenience.
+anyFFT is a high-performance Python wrapper for standard FFT libraries, providing a unified interface for Local and Distributed (MPI) transforms on both CPUs and GPUs. It avoids Python overhead by using `pybind11` for direct memory access and supports distributed memory (MPI) out of the box to expose C++ speed with Python convenience.
 
 ```Plain text
 [Python Layer]  User Interface (NumPy/CuPy)
@@ -16,7 +16,7 @@ anyFFT is a high-performance Python wrapper for standard FFT libraries, providin
 [Dispatcher]
       │
       ├──────── CPU: FFTW3 / FFTW3-MPI
-      └──────── GPU: cuFFT / cuFFTMp
+      └──────── GPU: cuFFT / hipFFT / cuFFTMp
 ```
 
 ## Features
@@ -24,17 +24,18 @@ anyFFT is a high-performance Python wrapper for standard FFT libraries, providin
 - Unified API: Switch between backends (CPU/GPU) without changing your math logic.
 - Zero-Copy Overhead: Direct access to underlying pointers prevents expensive data duplication.
 - Hardware Support:
-  - CPU: FFTW3 (Serial), FFTW3-MPI (Distributed)
-  - GPU: NVIDIA cuFFT (Serial), NVIDIA cuFFTMp (Multi-GPU) [Experimental]
+  - CPU: FFTW3 (Local), FFTW3-MPI (Distributed)
+  - GPU (NVIDIA): cuFFT (Local), cuFFTMp (Distributed via NVSHMEM)
+  - GPU (AMD): hipFFT (Local and Distributed via rocSHMEM) [Experimental]
 - Auto-Detection: The build system automatically detects available libraries and compiles only what your system supports.
 
-## Backend Support (Serial)
+## Backend Support (Local)
 
 anyFFT provides a unified `FFT` class, but the underlying libraries have different hardware constraints.
 
-| Feature | CPU Backend (`fftw`) | GPU Backend (`cufft`) |
+| Feature | CPU Backend (`fftw`) | GPU Backend (`cufft`, `hipfft`) |
 | :--- | :--- | :--- |
-| **Library** | FFTW3 | NVIDIA cuFFT |
+| **Library** | FFTW3 | NVIDIA cuFFT / AMD hipFFT |
 | **Data Object** | `numpy.ndarray` | `cupy.ndarray` |
 | **Dimensions** | **N-Dimensional** (1D, 2D, 3D, 4D, ...) | **Max 3D** (1D, 2D, 3D) |
 | **Transforms** | C2C, R2C, C2R | C2C, R2C, C2R |
@@ -50,8 +51,10 @@ anyFFT provides a unified `FFT` class, but the underlying libraries have differe
 - Python: 3.8+
 - Libraries (Optional but recommended):
   - FFTW3: For CPU support (`libfftw3-dev`, `libfftw3-mpi-dev`)
-  - CUDA Toolkit: For GPU support (`nvcc`, `libcufft`)
-  - MPI: OpenMPI or MPICH (required for distributed backends)
+  - OpenMP: For CPU multithreading (Standard on Linux/GCC, requires `libomp` on macOS)
+  - CUDA Toolkit: For NVIDIA GPU support (`nvcc`, `libcufft`)
+  - ROCm Toolkit: For AMD GPU support (`hipcc`, `hipfft`, `rocfft`)
+  - MPI: OpenMPI or MPICH (detected via `MPI_HOME` or fallback to `mpi4py` paths)
 
 ## Installation
 
@@ -65,29 +68,35 @@ pip install .
 
 ### Building on Clusters (Custom Paths)
 
-On HPC clusters, libraries often reside in non-standard paths. anyFFT allows you to specify these locations via environment variables before building.
+On HPC clusters, libraries often reside in non-standard paths. anyFFT allows you to specify these locations via environment variables before building to bypass automatic detection.
 
-Available Variables:
+Available Build Variables:
 
-- `MPI_HOME`: Path to MPI installation (containing `include/mpi.h`).
+- `MAX_JOBS`: Number of parallel workers for compiling GPU source files (defaults to total CPU cores).
+- `FFTW_ROOT`: Path to FFTW3 installation.
+- `MPI_HOME`: Path to MPI installation (bypasses `mpi4py` detection if set).
 - `CUDA_HOME`: Path to CUDA Toolkit (default `/usr/local/cuda`).
-- `FFTW_ROOT`: Path to FFTW installation.
-- `CUFFTMP_ROOT`: Path to NVIDIA HPC SDK Math Libs (for multi-GPU).
+- `ROCM_HOME`: Path to AMD ROCm Toolkit (defaults to /opt/rocm).
+- `USE_HIP`: Set to "1" to force building with HIP/ROCm instead of CUDA on hybrid systems.
+- `CUFFTMP_ROOT`: Path to NVIDIA cuFFTMp library headers/binaries.
+- `NVSHMEM_HOME`: Path to the NVIDIA NVSHMEM library.
+- `ROCSHMEM_HOME`: Path to the AMD rocSHMEM library.
 
 Example Build Command:
 
 ```Bash
 # Example for a cluster with non-standard paths
-export MPI_HOME=/opt/openmpi_cuda_aware_4
-export CUDA_HOME=/usr/local/cuda
-export CUFFTMP_ROOT=/opt/nvidia/hpc_sdk/Linux_x86_64/22.9/math_libs
+export MPI_HOME=/opt/openmpi_rocm_aware_4
+export ROCM_HOME=/opt/rocm-5.4.0
+export ROCSHMEM_HOME=/opt/rocm/rocshmem
+export USE_HIP=1
 
 pip install -v .
 ```
 
 ## Usage
 
-### Serial FFTW
+### Local FFTW
 
 ```Python
 import numpy as np
@@ -110,7 +119,7 @@ fft = FFT(shape=shape, dtype="float64", backend="fftw",
 fft.forward(in_data, out_data)
 ```
 
-### Serial cuFFT
+### Local Unified gpuFFT
 
 ```Python
 import cupy as cp
@@ -122,15 +131,15 @@ data = cp.random.rand(*shape).astype(cp.float64)
 out = cp.zeros((128, 65), dtype=cp.complex128)
 
 # Initialize cuFFT plan
-fft = FFT(shape=shape, dtype="float64", backend="cufft")
+fft = FFT(shape=shape, dtype="float64", backend="gpufft")
 
 # Execute on GPU
 fft.forward(data, out)
 ```
 
-### Performance Tuning (Experimental)
+### FFTW Performance Tuning
 
-You can optimize the CPU backend by enabling multithreading and adjusting the FFTW planner rigor.
+You can optimize the `fftw` backend by enabling multithreading and adjusting the FFTW planner rigor.
 
 ```Python
 import numpy as np
@@ -149,7 +158,7 @@ fft = FFT(shape=(128, 128, 128), dtype="complex128", backend="fftw",
           n_threads=8, flags=FFTW_MEASURE)
 ```
 
-For complete working examples of how to use anyFFT in both serial and parallel configurations, please refer to the test scripts included in the repository.
+For complete working examples of how to use anyFFT in both local and distributed configurations, please refer to the test scripts included in the repository.
 
 ## License
 
@@ -159,5 +168,5 @@ This repository is strictly for **demonstration purposes only**.
 No license is granted to use, modify, or distribute this code.
 
 **Note on Third-Party Libraries:**
-This project contains code interfaces for [FFTW3](http://www.fftw.org/) (GPL) and [NVIDIA CUDA](https://developer.nvidia.com/cuda-toolkit).
+This project contains code interfaces for [FFTW3](http://www.fftw.org/) (GPL), [NVIDIA CUDA](https://developer.nvidia.com/cuda-toolkit) and [AMD ROCm](https://rocm.docs.amd.com/).
 This repository contains only the wrapper source code and does not include any third-party binaries.

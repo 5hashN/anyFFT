@@ -28,14 +28,21 @@ inline std::vector<int> get_cupy_strides(py::object arr) {
     return strides;
 }
 
-class GPUFFT_LOCAL_C2C : public FFTBase {
+class gpufftLocal_C2C : public FFTBase {
     gpufftHandle plan_;
     ssize_t N_;
     std::string dtype_;
     int ndim_;
 public:
-    GPUFFT_LOCAL_C2C(int ndim, const std::vector<int>& shape, std::string dtype)
-        : N_(1), dtype_(dtype), ndim_(ndim) {
+    gpufftLocal_C2C(
+        int ndim,
+        const std::vector<int>& shape,
+        std::string dtype
+    ):
+    N_(1),
+    dtype_(dtype),
+    ndim_(ndim)
+    {
         for (int s : shape) N_ *= s;
 
         FFT_CHECK(gpufftCreate(&plan_));
@@ -50,8 +57,11 @@ public:
 
         {
             py::gil_scoped_release release;
-            if (dtype_ == "complex128") FFT_CHECK(gpufftExecZ2Z(plan_, (gpufftDoubleComplex*)i_ptr, (gpufftDoubleComplex*)o_ptr, GPUFFT_FORWARD))
-            else FFT_CHECK(gpufftExecC2C(plan_, (gpufftComplex*)i_ptr, (gpufftComplex*)o_ptr, GPUFFT_FORWARD));
+            if (dtype_ == "complex128") {
+                FFT_CHECK(gpufftExecZ2Z(plan_, (gpufftDoubleComplex*)i_ptr, (gpufftDoubleComplex*)o_ptr, GPUFFT_FORWARD))
+            } else {
+                FFT_CHECK(gpufftExecC2C(plan_, (gpufftComplex*)i_ptr, (gpufftComplex*)o_ptr, GPUFFT_FORWARD));
+            }
         }
     }
 
@@ -61,8 +71,11 @@ public:
 
         {
             py::gil_scoped_release release;
-            if (dtype_ == "complex128") FFT_CHECK(gpufftExecZ2Z(plan_, (gpufftDoubleComplex*)i_ptr, (gpufftDoubleComplex*)o_ptr, GPUFFT_INVERSE))
-            else FFT_CHECK(gpufftExecC2C(plan_, (gpufftComplex*)i_ptr, (gpufftComplex*)o_ptr, GPUFFT_INVERSE));
+            if (dtype_ == "complex128") {
+                FFT_CHECK(gpufftExecZ2Z(plan_, (gpufftDoubleComplex*)i_ptr, (gpufftDoubleComplex*)o_ptr, GPUFFT_INVERSE))
+            } else {
+                FFT_CHECK(gpufftExecC2C(plan_, (gpufftComplex*)i_ptr, (gpufftComplex*)o_ptr, GPUFFT_INVERSE));
+            }
             GPU_CHECK(gpufftDeviceSynchronize());
         }
 
@@ -70,20 +83,27 @@ public:
         out.attr("__imul__")(factor);
     }
 
-    ~GPUFFT_LOCAL_C2C() {
+    ~gpufftLocal_C2C() {
         gpufftDestroy(plan_);
     }
 };
 
-class GPUFFT_LOCAL_R2C : public FFTBase {
+class gpufftLocal_R2C : public FFTBase {
     gpufftHandle plan_r2c_;
     gpufftHandle plan_c2r_;
     ssize_t N_;
     std::string dtype_;
     int ndim_;
 public:
-    GPUFFT_LOCAL_R2C(int ndim, const std::vector<int>& shape, std::string dtype)
-        : N_(1), dtype_(dtype), ndim_(ndim) {
+    gpufftLocal_R2C(
+        int ndim,
+        const std::vector<int>& shape,
+        std::string dtype
+    ):
+    N_(1),
+    dtype_(dtype),
+    ndim_(ndim)
+    {
         for (int s : shape) N_ *= s;
 
         FFT_CHECK(gpufftCreate(&plan_r2c_));
@@ -101,8 +121,11 @@ public:
 
         {
             py::gil_scoped_release release;
-            if (dtype_ == "float64") FFT_CHECK(gpufftExecD2Z(plan_r2c_, (gpufftDoubleReal*)r_ptr, (gpufftDoubleComplex*)c_ptr))
-            else FFT_CHECK(gpufftExecR2C(plan_r2c_, (gpufftReal*)r_ptr, (gpufftComplex*)c_ptr));
+            if (dtype_ == "float64") {
+                FFT_CHECK(gpufftExecD2Z(plan_r2c_, (gpufftDoubleReal*)r_ptr, (gpufftDoubleComplex*)c_ptr))
+            } else {
+                FFT_CHECK(gpufftExecR2C(plan_r2c_, (gpufftReal*)r_ptr, (gpufftComplex*)c_ptr));
+            }
         }
     }
 
@@ -112,8 +135,11 @@ public:
 
         {
             py::gil_scoped_release release;
-            if (dtype_ == "float64") FFT_CHECK(gpufftExecZ2D(plan_c2r_, (gpufftDoubleComplex*)c_ptr, (gpufftDoubleReal*)r_ptr))
-            else FFT_CHECK(gpufftExecC2R(plan_c2r_, (gpufftComplex*)c_ptr, (gpufftReal*)r_ptr));
+            if (dtype_ == "float64") {
+                FFT_CHECK(gpufftExecZ2D(plan_c2r_, (gpufftDoubleComplex*)c_ptr, (gpufftDoubleReal*)r_ptr))
+            } else {
+                FFT_CHECK(gpufftExecC2R(plan_c2r_, (gpufftComplex*)c_ptr, (gpufftReal*)r_ptr));
+            }
             GPU_CHECK(gpufftDeviceSynchronize());
         }
 
@@ -121,13 +147,13 @@ public:
         out.attr("__imul__")(factor);
     }
 
-    ~GPUFFT_LOCAL_R2C() {
+    ~gpufftLocal_R2C() {
         gpufftDestroy(plan_r2c_);
         gpufftDestroy(plan_c2r_);
     }
 };
 
-class GPUFFT_LOCAL_Generic : public FFTBase {
+class gpufftLocal_Generic : public FFTBase {
     int ndim_;
     std::vector<int> shape_;
     std::vector<int> axes_;
@@ -149,15 +175,21 @@ class GPUFFT_LOCAL_Generic : public FFTBase {
     } current_config_;
 
 public:
-    GPUFFT_LOCAL_Generic(const std::vector<int>& shape, const std::vector<int>& axes, const std::string& dtype)
-        : shape_(shape), axes_(axes), dtype_(dtype)
+    gpufftLocal_Generic(
+        const std::vector<int>& shape,
+        const std::vector<int>& axes,
+        const std::string& dtype
+    ):
+    shape_(shape),
+    axes_(axes),
+    dtype_(dtype)
     {
         std::sort(axes_.begin(), axes_.end());
         ndim_ = axes_.size();
     }
 
-    ~GPUFFT_LOCAL_Generic() {
-        if (plan_valid_) gpufftDestroy(plan_);
+    ~gpufftLocal_Generic() {
+        if (plan_valid_) { gpufftDestroy(plan_); }
     }
 
     bool check_contiguous_axes() {
@@ -237,7 +269,7 @@ public:
             new_config.inembed != current_config_.inembed ||
             new_config.is_inplace != current_config_.is_inplace)
         {
-            if (plan_valid_) gpufftDestroy(plan_);
+            if (plan_valid_) { gpufftDestroy(plan_); }
             FFT_CHECK(gpufftCreate(&plan_));
             FFT_CHECK(gpufftPlanMany(&plan_,
                                       rank, new_config.n.data(),
@@ -300,8 +332,11 @@ public:
     }
 };
 
-GPUFFT_LOCAL::GPUFFT_LOCAL(const std::vector<int>& shape,
-                           const std::vector<int>& axes, const std::string& dtype)
+gpufftLocal::gpufftLocal(
+    const std::vector<int>& shape,
+    const std::vector<int>& axes,
+    const std::string& dtype
+)
 {
     bool use_hardcoded = false;
     if (axes.empty()) {
@@ -314,22 +349,23 @@ GPUFFT_LOCAL::GPUFFT_LOCAL(const std::vector<int>& shape,
             for(size_t i=0; i<sorted_axes.size(); ++i) {
                 if (sorted_axes[i] != i) { sorted = false; break; }
             }
-            if (sorted) use_hardcoded = true;
+            if (sorted) { use_hardcoded = true; }
         }
     }
 
     int ndim = shape.size();
 
     if (use_hardcoded) {
-        if (dtype == "complex128" || dtype == "complex64")
-            impl_ = std::make_unique<GPUFFT_LOCAL_C2C>(ndim, shape, dtype);
-        else
-            impl_ = std::make_unique<GPUFFT_LOCAL_R2C>(ndim, shape, dtype);
+        if (dtype == "complex128" || dtype == "complex64") {
+            impl_ = std::make_unique<gpufftLocal_C2C>(ndim, shape, dtype);
+        } else {
+            impl_ = std::make_unique<gpufftLocal_R2C>(ndim, shape, dtype);
+        }
     } else {
-        impl_ = std::make_unique<GPUFFT_LOCAL_Generic>(shape, axes, dtype);
+        impl_ = std::make_unique<gpufftLocal_Generic>(shape, axes, dtype);
     }
 }
 
-void GPUFFT_LOCAL::forward(py::object in, py::object out) { impl_->forward(in, out); }
-void GPUFFT_LOCAL::backward(py::object in, py::object out) { impl_->backward(in, out); }
-GPUFFT_LOCAL::~GPUFFT_LOCAL() = default;
+void gpufftLocal::forward(py::object in, py::object out) { impl_->forward(in, out); }
+void gpufftLocal::backward(py::object in, py::object out) { impl_->backward(in, out); }
+gpufftLocal::~gpufftLocal() = default;

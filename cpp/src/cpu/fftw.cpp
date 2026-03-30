@@ -74,15 +74,21 @@ public:
 
     // Creator is a lambda that calls the actual FFTW plan function if cache miss
     template<typename Creator>
-    void* get_or_create(bool is_double, int algo_type, int direction, unsigned flags,
-                        bool is_inplace, const GuruDims& g, Creator&& creator)
+    void* get_or_create(
+        bool is_double,
+        int algo_type,
+        int direction,
+        unsigned flags,
+        bool is_inplace,
+        const GuruDims& g,
+        Creator&& creator
+    )
     {
-        PlanKey key = std::make_tuple(
-            is_double, algo_type, direction, flags, is_inplace,
+        PlanKey key{is_double, algo_type, direction, flags, is_inplace,
             flatten_iodims(g.dims), flatten_iodims(g.howmany_dims)
-        );
+        };
 
-        std::lock_guard<std::mutex> lock(mtx_);
+        std::scoped_lock lock(mtx_);
         auto it = cache_.find(key);
         if (it != cache_.end()) {
             return it->second;
@@ -97,7 +103,7 @@ public:
     }
 };
 
-class FFTW_LOCAL_C2C : public FFTBase {
+class FFTWLocal_C2C : public FFTBase {
     std::vector<int> shape_;
     ssize_t N_;
     std::string dtype_;
@@ -105,12 +111,23 @@ class FFTW_LOCAL_C2C : public FFTBase {
     void* plan_backward_;
 
 public:
-    FFTW_LOCAL_C2C(const std::vector<int>& shape,
-             py::array in, py::array out, std::string dtype, int n_threads, unsigned flags)
-        : shape_(shape), N_(1), dtype_(dtype), plan_forward_(nullptr), plan_backward_(nullptr)
+    FFTWLocal_C2C(
+        const std::vector<int>& shape,
+        py::array in,
+        py::array out,
+        std::string dtype,
+        int n_threads,
+        unsigned flags
+    ):
+    shape_(shape),
+    N_(1),
+    dtype_(dtype),
+    plan_forward_(nullptr),
+    plan_backward_(nullptr)
     {
         for (int i : shape_) N_ *= i;
-        void* i_p = in.mutable_data(); void* o_p = out.mutable_data();
+        void* i_p = in.mutable_data();
+        void* o_p = out.mutable_data();
         int ndim_ = shape_.size();
 
 #ifdef ENABLE_FFTW_OMP
@@ -152,10 +169,11 @@ public:
 
         {
             py::gil_scoped_release release;
-            if (dtype_ == "complex128")
+            if (dtype_ == "complex128") {
                 fftw_execute_dft((fftw_plan)plan_forward_, (fftw_complex*)i_ptr, (fftw_complex*)o_ptr);
-            else
+            } else {
                 fftwf_execute_dft((fftwf_plan)plan_forward_, (fftwf_complex*)i_ptr, (fftwf_complex*)o_ptr);
+            }
         }
     }
 
@@ -168,27 +186,28 @@ public:
 
         {
             py::gil_scoped_release release;
-            if (dtype_ == "complex128")
+            if (dtype_ == "complex128") {
                 fftw_execute_dft((fftw_plan)plan_backward_, (fftw_complex*)i_ptr, (fftw_complex*)o_ptr);
-            else
+            } else {
                 fftwf_execute_dft((fftwf_plan)plan_backward_, (fftwf_complex*)i_ptr, (fftwf_complex*)o_ptr);
+            }
         }
 
         scale_array(o_arr, 1.0/N_);
     }
 
-    ~FFTW_LOCAL_C2C() {
+    ~FFTWLocal_C2C() {
         if(dtype_ == "complex128") {
-            if(plan_forward_) fftw_destroy_plan((fftw_plan)plan_forward_);
-            if(plan_backward_) fftw_destroy_plan((fftw_plan)plan_backward_);
+            if(plan_forward_) { fftw_destroy_plan((fftw_plan)plan_forward_); }
+            if(plan_backward_) { fftw_destroy_plan((fftw_plan)plan_backward_); }
         } else {
-            if(plan_forward_) fftwf_destroy_plan((fftwf_plan)plan_forward_);
-            if(plan_backward_) fftwf_destroy_plan((fftwf_plan)plan_backward_);
+            if(plan_forward_) { fftwf_destroy_plan((fftwf_plan)plan_forward_); }
+            if(plan_backward_) { fftwf_destroy_plan((fftwf_plan)plan_backward_); }
         }
     }
 };
 
-class FFTW_LOCAL_R2C_OutPlace : public FFTBase {
+class FFTWLocal_R2C_OutPlace : public FFTBase {
     std::vector<int> shape_;
     ssize_t N_;
     std::string dtype_;
@@ -196,12 +215,23 @@ class FFTW_LOCAL_R2C_OutPlace : public FFTBase {
     void* plan_c2r_;
 
 public:
-    FFTW_LOCAL_R2C_OutPlace(const std::vector<int>& shape,
-                      py::array r, py::array c, std::string dtype, int n_threads, unsigned flags)
-        : shape_(shape), N_(1), dtype_(dtype), plan_r2c_(nullptr), plan_c2r_(nullptr)
+    FFTWLocal_R2C_OutPlace(
+        const std::vector<int>& shape,
+        py::array r,
+        py::array c,
+        std::string dtype,
+        int n_threads,
+        unsigned flags
+    ):
+    shape_(shape),
+    N_(1),
+    dtype_(dtype),
+    plan_r2c_(nullptr),
+    plan_c2r_(nullptr)
     {
         for(int i:shape_) N_*=i;
-        void* rp = r.mutable_data(); void* cp = c.mutable_data();
+        void* rp = r.mutable_data();
+        void* cp = c.mutable_data();
         int ndim_ = shape.size();
 
 #ifdef ENABLE_FFTW_OMP
@@ -243,8 +273,11 @@ public:
 
         {
             py::gil_scoped_release release;
-            if(dtype_ == "float64") fftw_execute_dft_r2c((fftw_plan)plan_r2c_, (double*)i_ptr, (fftw_complex*)o_ptr);
-            else fftwf_execute_dft_r2c((fftwf_plan)plan_r2c_, (float*)i_ptr, (fftwf_complex*)o_ptr);
+            if(dtype_ == "float64") {
+                fftw_execute_dft_r2c((fftw_plan)plan_r2c_, (double*)i_ptr, (fftw_complex*)o_ptr);
+            } else {
+                fftwf_execute_dft_r2c((fftwf_plan)plan_r2c_, (float*)i_ptr, (fftwf_complex*)o_ptr);
+            }
         }
     }
 
@@ -257,25 +290,28 @@ public:
 
         {
             py::gil_scoped_release release;
-            if(dtype_ == "float64") fftw_execute_dft_c2r((fftw_plan)plan_c2r_, (fftw_complex*)i_ptr, (double*)o_ptr);
-            else fftwf_execute_dft_c2r((fftwf_plan)plan_c2r_, (fftwf_complex*)i_ptr, (float*)o_ptr);
+            if(dtype_ == "float64") {
+                fftw_execute_dft_c2r((fftw_plan)plan_c2r_, (fftw_complex*)i_ptr, (double*)o_ptr);
+            } else {
+                fftwf_execute_dft_c2r((fftwf_plan)plan_c2r_, (fftwf_complex*)i_ptr, (float*)o_ptr);
+            }
         }
 
         scale_array(o_arr, 1.0/N_);
     }
 
-    ~FFTW_LOCAL_R2C_OutPlace() {
+    ~FFTWLocal_R2C_OutPlace() {
         if(dtype_ == "float64") {
-            if(plan_r2c_) fftw_destroy_plan((fftw_plan)plan_r2c_);
-            if(plan_c2r_) fftw_destroy_plan((fftw_plan)plan_c2r_);
+            if(plan_r2c_) { fftw_destroy_plan((fftw_plan)plan_r2c_); }
+            if(plan_c2r_) { fftw_destroy_plan((fftw_plan)plan_c2r_); }
         } else {
-            if(plan_r2c_) fftwf_destroy_plan((fftwf_plan)plan_r2c_);
-            if(plan_c2r_) fftwf_destroy_plan((fftwf_plan)plan_c2r_);
+            if(plan_r2c_) { fftwf_destroy_plan((fftwf_plan)plan_r2c_); }
+            if(plan_c2r_) { fftwf_destroy_plan((fftwf_plan)plan_c2r_); }
         }
     }
 };
 
-class FFTW_LOCAL_R2C_InPlace : public FFTBase {
+class FFTWLocal_R2C_InPlace : public FFTBase {
     std::vector<int> shape_;
     ssize_t N_;
     std::string dtype_;
@@ -283,9 +319,18 @@ class FFTW_LOCAL_R2C_InPlace : public FFTBase {
     void* plan_c2r_;
 
 public:
-    FFTW_LOCAL_R2C_InPlace(const std::vector<int>& shape, py::array data,
-                     std::string dtype, int n_threads, unsigned flags)
-        : shape_(shape), N_(1), dtype_(dtype), plan_r2c_(nullptr), plan_c2r_(nullptr)
+    FFTWLocal_R2C_InPlace(
+        const std::vector<int>& shape,
+        py::array data,
+        std::string dtype,
+        int n_threads,
+        unsigned flags
+    ):
+    shape_(shape),
+    N_(1),
+    dtype_(dtype),
+    plan_r2c_(nullptr),
+    plan_c2r_(nullptr)
     {
         for(int i:shape_) N_*=i;
         void* ptr = data.mutable_data();
@@ -328,10 +373,11 @@ public:
 
         {
             py::gil_scoped_release release;
-            if(dtype_ == "float64")
+            if(dtype_ == "float64") {
                 fftw_execute_dft_r2c((fftw_plan)plan_r2c_, (double*)p, (fftw_complex*)p);
-            else
+            } else {
                 fftwf_execute_dft_r2c((fftwf_plan)plan_r2c_, (float*)p, (fftwf_complex*)p);
+            }
         }
     }
 
@@ -342,36 +388,44 @@ public:
 
         {
             py::gil_scoped_release release;
-            if(dtype_ == "float64")
+            if(dtype_ == "float64") {
                 fftw_execute_dft_c2r((fftw_plan)plan_c2r_, (fftw_complex*)p, (double*)p);
-            else
+            } else {
                 fftwf_execute_dft_c2r((fftwf_plan)plan_c2r_, (fftwf_complex*)p, (float*)p);
+            }
         }
 
         scale_array(o_arr, 1.0/N_);
     }
 
-    ~FFTW_LOCAL_R2C_InPlace() {
+    ~FFTWLocal_R2C_InPlace() {
         if(dtype_ == "float64") {
-            if(plan_r2c_) fftw_destroy_plan((fftw_plan)plan_r2c_);
-            if(plan_c2r_) fftw_destroy_plan((fftw_plan)plan_c2r_);
+            if(plan_r2c_) { fftw_destroy_plan((fftw_plan)plan_r2c_); }
+            if(plan_c2r_) { fftw_destroy_plan((fftw_plan)plan_c2r_); }
         } else {
-            if(plan_r2c_) fftwf_destroy_plan((fftwf_plan)plan_r2c_);
-            if(plan_c2r_) fftwf_destroy_plan((fftwf_plan)plan_c2r_);
+            if(plan_r2c_) { fftwf_destroy_plan((fftwf_plan)plan_r2c_); }
+            if(plan_c2r_) { fftwf_destroy_plan((fftwf_plan)plan_c2r_); }
         }
     }
 };
 
-class FFTW_LOCAL_GURU_C2C : public FFTBase {
+class FFTWLocal_GURU_C2C : public FFTBase {
     std::string dtype_;
     void* plan_fwd_ = nullptr;
     void* plan_bwd_ = nullptr;
     double scale_;
 
 public:
-    FFTW_LOCAL_GURU_C2C(const std::vector<int>& shape, const std::vector<int>& axes,
-                  py::array in, py::array out, std::string dtype, int n_threads, unsigned flags)
-        : dtype_(dtype)
+    FFTWLocal_GURU_C2C(
+        const std::vector<int>& shape,
+        const std::vector<int>& axes,
+        py::array in,
+        py::array out,
+        std::string dtype,
+        int n_threads,
+        unsigned flags
+    ):
+    dtype_(dtype)
     {
 #ifdef ENABLE_FFTW_OMP
         fftw_plan_with_nthreads(n_threads);
@@ -392,20 +446,22 @@ public:
         plan_fwd_ = FFTWPlanCache::instance().get_or_create(
             is_double, 0 /*C2C*/, FFTW_FORWARD, flags, is_inplace, g,
             [&]() -> void* {
-                if (is_double)
+                if (is_double) {
                     return fftw_plan_guru_dft(g.dims.size(), g.dims.data(), g.howmany_dims.size(), g.howmany_dims.data(), (fftw_complex*)ip, (fftw_complex*)op, FFTW_FORWARD, flags);
-                else
+                } else {
                     return fftwf_plan_guru_dft(g.dims.size(), (fftwf_iodim*)g.dims.data(), g.howmany_dims.size(), (fftwf_iodim*)g.howmany_dims.data(), (fftwf_complex*)ip, (fftwf_complex*)op, FFTW_FORWARD, flags);
+                }
             }
         );
 
         plan_bwd_ = FFTWPlanCache::instance().get_or_create(
             is_double, 0 /*C2C*/, FFTW_BACKWARD, flags, is_inplace, g,
             [&]() -> void* {
-                if (is_double)
+                if (is_double) {
                     return fftw_plan_guru_dft(g.dims.size(), g.dims.data(), g.howmany_dims.size(), g.howmany_dims.data(), (fftw_complex*)ip, (fftw_complex*)op, FFTW_BACKWARD, flags);
-                else
+                } else {
                     return fftwf_plan_guru_dft(g.dims.size(), (fftwf_iodim*)g.dims.data(), g.howmany_dims.size(), (fftwf_iodim*)g.howmany_dims.data(), (fftwf_complex*)ip, (fftwf_complex*)op, FFTW_BACKWARD, flags);
+                }
             }
         );
     }
@@ -418,10 +474,11 @@ public:
 
         {
             py::gil_scoped_release release;
-            if(dtype_ == "complex128")
+            if(dtype_ == "complex128") {
                 fftw_execute_dft((fftw_plan)plan_fwd_, (fftw_complex*)i_ptr, (fftw_complex*)o_ptr);
-            else
+            } else {
                 fftwf_execute_dft((fftwf_plan)plan_fwd_, (fftwf_complex*)i_ptr, (fftwf_complex*)o_ptr);
+            }
         }
     }
 
@@ -433,27 +490,35 @@ public:
 
         {
             py::gil_scoped_release release;
-            if(dtype_ == "complex128")
+            if(dtype_ == "complex128") {
                 fftw_execute_dft((fftw_plan)plan_bwd_, (fftw_complex*)i_ptr, (fftw_complex*)o_ptr);
-            else
+            } else {
                 fftwf_execute_dft((fftwf_plan)plan_bwd_, (fftwf_complex*)i_ptr, (fftwf_complex*)o_ptr);
+            }
         }
         scale_array(o_arr, scale_);
     }
 
-    ~FFTW_LOCAL_GURU_C2C() = default;
+    ~FFTWLocal_GURU_C2C() = default;
 };
 
-class FFTW_LOCAL_Guru_R2C : public FFTBase {
+class FFTWLocal_Guru_R2C : public FFTBase {
     std::string dtype_;
     void* plan_r2c_ = nullptr;
     void* plan_c2r_ = nullptr;
     double scale_;
 
 public:
-    FFTW_LOCAL_Guru_R2C(const std::vector<int>& shape, const std::vector<int>& axes,
-                  py::array in, py::array out, std::string dtype, int n_threads, unsigned flags)
-        : dtype_(dtype)
+    FFTWLocal_Guru_R2C(
+        const std::vector<int>& shape,
+        const std::vector<int>& axes,
+        py::array in,
+        py::array out,
+        std::string dtype,
+        int n_threads,
+        unsigned flags
+    ):
+    dtype_(dtype)
     {
 #ifdef ENABLE_FFTW_OMP
         fftw_plan_with_nthreads(n_threads);
@@ -476,20 +541,22 @@ public:
         plan_r2c_ = FFTWPlanCache::instance().get_or_create(
             is_double, 1 /*R2C*/, FFTW_FORWARD, flags, is_inplace, gf,
             [&]() -> void* {
-                if(is_double)
+                if(is_double) {
                     return fftw_plan_guru_dft_r2c(gf.dims.size(), gf.dims.data(), gf.howmany_dims.size(), gf.howmany_dims.data(), (double*)rp, (fftw_complex*)cp, flags);
-                else
+                } else {
                     return fftwf_plan_guru_dft_r2c(gf.dims.size(), (fftwf_iodim*)gf.dims.data(), gf.howmany_dims.size(), (fftwf_iodim*)gf.howmany_dims.data(), (float*)rp, (fftwf_complex*)cp, flags);
+                }
             }
         );
 
         plan_c2r_ = FFTWPlanCache::instance().get_or_create(
             is_double, 2 /*C2R*/, FFTW_BACKWARD, flags, is_inplace, gb,
             [&]() -> void* {
-                if(is_double)
+                if(is_double) {
                     return fftw_plan_guru_dft_c2r(gb.dims.size(), gb.dims.data(), gb.howmany_dims.size(), gb.howmany_dims.data(), (fftw_complex*)cp, (double*)rp, flags);
-                else
+                } else {
                     return fftwf_plan_guru_dft_c2r(gb.dims.size(), (fftwf_iodim*)gb.dims.data(), gb.howmany_dims.size(), (fftwf_iodim*)gb.howmany_dims.data(), (fftwf_complex*)cp, (float*)rp, flags);
+                }
             }
         );
     }
@@ -502,10 +569,11 @@ public:
 
         {
             py::gil_scoped_release release;
-            if(dtype_ == "float64")
+            if(dtype_ == "float64") {
                 fftw_execute_dft_r2c((fftw_plan)plan_r2c_, (double*)i_ptr, (fftw_complex*)o_ptr);
-            else
+            } else {
                 fftwf_execute_dft_r2c((fftwf_plan)plan_r2c_, (float*)i_ptr, (fftwf_complex*)o_ptr);
+            }
         }
     }
 
@@ -517,21 +585,27 @@ public:
 
         {
             py::gil_scoped_release release;
-            if(dtype_ == "float64")
+            if(dtype_ == "float64") {
                 fftw_execute_dft_c2r((fftw_plan)plan_c2r_, (fftw_complex*)i_ptr, (double*)o_ptr);
-            else
+            } else {
                 fftwf_execute_dft_c2r((fftwf_plan)plan_c2r_, (fftwf_complex*)i_ptr, (float*)o_ptr);
+            }
         }
         scale_array(o_arr, scale_);
     }
 
-    ~FFTW_LOCAL_Guru_R2C() = default;
+    ~FFTWLocal_Guru_R2C() = default;
 };
 
-FFTW_LOCAL::FFTW_LOCAL(const std::vector<int>& shape,
-                         const std::vector<int>& axes,
-                         py::array real_in, py::array complex_out,
-                         const std::string& dtype, int n_threads, unsigned flags)
+FFTWLocal::FFTWLocal(
+    const std::vector<int>& shape,
+    const std::vector<int>& axes,
+    py::array in,
+    py::array out,
+    const std::string& dtype,
+    int n_threads,
+    unsigned flags
+)
 {
 #ifdef ENABLE_FFTW_OMP
     static bool initialized = false;
@@ -548,12 +622,13 @@ FFTW_LOCAL::FFTW_LOCAL(const std::vector<int>& shape,
         std::iota(active_axes.begin(), active_axes.end(), 0);
     }
 
-    if (dtype == "complex128" || dtype == "complex64")
-        impl_ = std::make_unique<FFTW_LOCAL_GURU_C2C>(shape, active_axes, real_in, complex_out, dtype, n_threads, flags);
-    else
-        impl_ = std::make_unique<FFTW_LOCAL_Guru_R2C>(shape, active_axes, real_in, complex_out, dtype, n_threads, flags);
+    if (dtype == "complex128" || dtype == "complex64") {
+        impl_ = std::make_unique<FFTWLocal_GURU_C2C>(shape, active_axes, in, out, dtype, n_threads, flags);
+    } else {
+        impl_ = std::make_unique<FFTWLocal_Guru_R2C>(shape, active_axes, in, out, dtype, n_threads, flags);
+    }
 }
 
-void FFTW_LOCAL::forward(py::object in, py::object out) { impl_->forward(in, out); }
-void FFTW_LOCAL::backward(py::object in, py::object out) { impl_->backward(in, out); }
-FFTW_LOCAL::~FFTW_LOCAL() = default;
+void FFTWLocal::forward(py::object in, py::object out) { impl_->forward(in, out); }
+void FFTWLocal::backward(py::object in, py::object out) { impl_->backward(in, out); }
+FFTWLocal::~FFTWLocal() = default;

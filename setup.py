@@ -155,7 +155,7 @@ if not fftw_info["found"] and not has_cuda and not has_hip:
     sys.exit(1)
 
 
-sources = ["cpp/src/module.cpp"]
+sources = ["cpp/bindings/module.cpp"]
 libraries = ["m"]
 library_dirs = []
 define_macros = []

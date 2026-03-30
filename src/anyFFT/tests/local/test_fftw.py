@@ -19,9 +19,10 @@ except ImportError:
     sys.exit(1)
 
 BACKEND = "fftw"
-FAILED_TESTS = []
+
 TOTAL_TESTS = 0
 PASSED_TESTS = 0
+FAILED_TESTS = []
 
 
 def setup_r2c_inplace_buffer(shape, dtype_str, axes=None):

@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.11] - 2026-03-30
+
+- code linting for c++17 compliance
+- implemented prototype of the distributed unified gpu backend
+- starting setup for dual c++/python project conversion
+
 ## [0.1.10] - 2026-03-21
 
 - integrated hipfft to make a unified gpu backend for local transforms

@@ -25,9 +25,10 @@ except ImportError:
     sys.exit(1)
 
 BACKEND = get_gpu_backend_name()
-FAILED_TESTS = []
+
 TOTAL_TESTS = 0
 PASSED_TESTS = 0
+FAILED_TESTS = []
 
 
 def setup_r2c_inplace_buffer_gpu(shape, dtype_str, axes=None):

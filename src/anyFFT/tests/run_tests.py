@@ -8,6 +8,7 @@ Demonstration only. No license granted.
 import subprocess
 import sys
 import shutil
+import argparse
 from pathlib import Path
 
 try:
@@ -53,7 +54,28 @@ def format_backend(name, tag, is_installed):
     return f"{color} [{mark}] {name:<14} {YELLOW}({tag}){RESET}"
 
 def main():
+    parser = argparse.ArgumentParser(description="anyFFT Test Runner")
+    parser.add_argument(
+        "filters",
+        nargs="*",
+        help="Optional: Filter tests by backend (e.g., 'fftw', 'gpufft') or category ('local', 'dist')."
+    )
+    args = parser.parse_args()
+
+    filters = [f.lower() for f in args.filters]
+
+    def should_run(script_name, category):
+        if not filters:
+            return True
+        for f in filters:
+            if f in script_name.lower() or f == category.lower():
+                return True
+        return False
+
     print(f"{CYAN}{'='*60}\nanyFFT Test Runner\n{'='*60}{RESET}")
+
+    if filters:
+        print(f"{YELLOW}Active Filters: {', '.join(filters)}{RESET}\n")
 
     backends = {
         "fftw":        ["FFTW",         "Local",       anyFFT.has_backend("fftw")],
@@ -84,6 +106,10 @@ def main():
 
     for path in local_tests:
         script = path.name
+
+        if not should_run(script, "local"):
+            continue
+
         skip_reason = None
 
         if "fftw" in script and not backends["fftw"][2]:
@@ -117,6 +143,10 @@ def main():
     else:
         for path in dist_tests:
             script = path.name
+
+            if not should_run(script, "dist"):
+                continue
+
             skip_reason = None
 
             if "fftw" in script and not backends["fftw_mpi"][2]:

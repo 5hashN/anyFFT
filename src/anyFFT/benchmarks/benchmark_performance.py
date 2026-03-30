@@ -320,6 +320,11 @@ def generate_plot(sizes, times_dict, title_prefix, file_path):
 def main():
     parser = argparse.ArgumentParser(description="anyFFT Performance Benchmark")
     parser.add_argument(
+        "backends",
+        nargs="*",
+        help="Optional: Specific backends to benchmark (e.g., 'fftw', 'cufftmp'). Leave empty to run all."
+    )
+    parser.add_argument(
         "--max-size",
         type=int,
         default=2048,
@@ -332,6 +337,19 @@ def main():
         help="Select the precision to benchmark: 'single' (complex64), 'double' (complex128), or 'both'."
     )
     args = parser.parse_args()
+
+    filters = [f.lower() for f in args.backends]
+
+    run_cpu = DEPS["anyfft_fftw"]
+    run_gpu = DEPS["cupy"] and (DEPS["anyfft_cufft"] or DEPS["anyfft_hipfft"])
+
+    if filters:
+        run_cpu = run_cpu and any(f in ["fftw", "cpu"] for f in filters)
+        run_gpu = run_gpu and any(f in ["gpufft", "cufft", "hipfft", "gpu"] for f in filters)
+
+    if not run_cpu and not run_gpu:
+        print(f"{RED}CRITICAL: No valid backends selected or minimum requirements not met. Exiting.{RESET}")
+        sys.exit(1)
 
     if not DEPS["anyfft_fftw"] and not (DEPS["cupy"] and (DEPS["anyfft_cufft"] or DEPS["anyfft_hipfft"])):
         print(f"{RED}CRITICAL: Minimum requirements for benchmarking (anyFFT backends) not met. Exiting.{RESET}")
@@ -364,19 +382,22 @@ def main():
 
     print(f"{CYAN}{'='*60}\nanyFFT Benchmarking\n{'='*60}{RESET}")
 
+    if filters:
+        print(f"{YELLOW}Active Filters: {', '.join(filters)}{RESET}")
+
     print(f"\n{CYAN}Outputs will be saved to: {plots_dir.resolve()}{RESET}")
     print(f"{CYAN}Testing Grid Sizes: {sizes}{RESET}")
     print(f"{CYAN}Testing Precision: {args.precision}{RESET}")
 
     for dtype_np, dtype_str, label in precisions:
 
-        if DEPS["anyfft_fftw"]:
+        if run_cpu:
             s_sizes, plot_data = run_cpu_benchmark(sizes, dtype_np, dtype_str)
             if s_sizes:
                 output_file = plots_dir / f"cpu_results_{dtype_str}.png"
                 generate_plot(s_sizes, plot_data, f"CPU {label}", output_file)
 
-        if DEPS["cupy"] and (DEPS["anyfft_cufft"] or DEPS["anyfft_hipfft"]):
+        if run_gpu:
             s_sizes, plot_data = run_gpu_benchmark(sizes, dtype_np, dtype_str)
             if s_sizes:
                 output_file = plots_dir / f"gpu_results_{dtype_str}.png"

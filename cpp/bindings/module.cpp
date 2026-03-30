@@ -83,7 +83,7 @@ std::string doc_str = "anyFFT Core Module\n"
     m.attr("FFTW_EXHAUSTIVE") = FFTW_EXHAUSTIVE;
 
     // Guru Interface
-    py::class_<FFTW_LOCAL>(m, "fftw")
+    py::class_<FFTWLocal>(m, "fftw")
         .def(py::init<const std::vector<int>&, const std::vector<int>&, py::array, py::array, const std::string&, int, unsigned>(),
             "shape"_a, "axes"_a, "input"_a, "output"_a, "dtype"_a, "n_threads"_a = 1, "flags"_a = FFTW_ESTIMATE,
             "FFTW backend. Supports:\n"
@@ -91,21 +91,21 @@ std::string doc_str = "anyFFT Core Module\n"
             " - Complex-to-Complex (complex128/64)\n"
             " - In-Place & Out-of-Place\n"
             " - Arbitrary axes and strides")
-        .def("forward", &FFTW_LOCAL::forward)
-        .def("backward", &FFTW_LOCAL::backward);
+        .def("forward", &FFTWLocal::forward)
+        .def("backward", &FFTWLocal::backward);
 #endif
 
 #ifdef ENABLE_FFTW_MPI
-    py::class_<FFTW_DIST>(m, "fftw_mpi")
+    py::class_<FFTWMpiDist>(m, "fftw_mpi")
         .def(py::init<const std::vector<int>&, py::array, py::array, const std::string&, int>(),
             "global_shape"_a, "input"_a, "output"_a, "dtype"_a, "comm"_a,
             "FFTW-MPI Backend. Supports:\n"
             " - Real-to-Complex (In-Place ONLY)\n"
             " - Complex-to-Complex (In-Place & Out-of-Place)\n"
             " - 2D and 3D Slab Decomposition")
-        .def("forward", &FFTW_DIST::forward)
-        .def("backward", &FFTW_DIST::backward)
-        .def_static("get_local_info", &FFTW_DIST::get_local_info,
+        .def("forward", &FFTWMpiDist::forward)
+        .def("backward", &FFTWMpiDist::backward)
+        .def_static("get_local_info", &FFTWMpiDist::get_local_info,
             "global_shape"_a, "comm"_a, "r2c"_a,
             "Returns (in_shape, in_start, out_shape, out_start). for slab decomposition.");
 #endif
@@ -113,7 +113,7 @@ std::string doc_str = "anyFFT Core Module\n"
     m.def("get_gpu_backend_name", &get_gpu_backend_name, "Returns the compiled GPU backend name (cuFFT or hipFFT).");
 
 #if HAS_GPUFFT
-    py::class_<GPUFFT_LOCAL>(m, "gpufft")
+    py::class_<gpufftLocal>(m, "gpufft")
         .def(py::init<const std::vector<int>&, const std::vector<int>&, const std::string&>(),
             "shape"_a, "axes"_a, "dtype"_a,
             (std::string("Unified GPU backend (") + gpu_name + "). Supports:\n"
@@ -121,22 +121,22 @@ std::string doc_str = "anyFFT Core Module\n"
             " - Complex-to-Complex (complex128/64)\n"
             " - In-Place & Out-of-Place\n"
             " - Contiguous axes and strides").c_str())
-        .def("forward", &GPUFFT_LOCAL::forward)
-        .def("backward", &GPUFFT_LOCAL::backward);
+        .def("forward", &gpufftLocal::forward)
+        .def("backward", &gpufftLocal::backward);
 #endif
 }
 
 #ifdef ENABLE_CUDA_MPI
-    py::class_<CUFFT_DIST>(m, "cufftmp")
+    py::class_<cufftMpDist>(m, "cufftmp")
         .def(py::init<const std::vector<int>&, const std::vector<int>&, py::object, py::object, const std::string&, int>(),
             "global_shape"_a, "grid"_a, "input"_a, "output"_a, "dtype"_a, "comm"_a,
             "cuFFTMp Backend. Supports:\n"
             " - Real-to-Complex (In-Place & Out-of-Place)\n"
             " - Complex-to-Complex (In-Place & Out-of-Place)\n"
             " - Slab (1D) and Pencil (2D) Decomposition via 'grid' argument")
-        .def("forward", &CUFFT_DIST::forward)
-        .def("backward", &CUFFT_DIST::backward)
-        .def_static("get_local_info", &CUFFT_DIST::get_local_info,
+        .def("forward", &cufftMpDist::forward)
+        .def("backward", &cufftMpDist::backward)
+        .def_static("get_local_info", &cufftMpDist::get_local_info,
             "global_shape"_a, "grid"_a, "comm"_a, "r2c"_a,
             "Returns (in_shape, in_start, out_shape, out_start) for slab/pencil decomposition.");
 #endif

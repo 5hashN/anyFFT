@@ -13,7 +13,8 @@ Demonstration only. No license granted.
 using DistPlanKey = std::tuple<int, bool, int, int, unsigned, bool, std::vector<ptrdiff_t>>;
 
 class FFTWDistPlanCache {
-    std::map<DistPlanKey, void*> cache_;
+    std::map<DistPlanKey,
+    void*> cache_;
     std::mutex mtx_;
 
 public:
@@ -23,13 +24,20 @@ public:
     }
 
     template<typename Creator>
-    void* get_or_create(int comm_handle, bool is_double, int algo_type, int direction,
-                        unsigned flags, bool is_inplace, const std::vector<ptrdiff_t>& shape,
-                        Creator&& creator)
+    void* get_or_create(
+        int comm_handle,
+        bool is_double,
+        int algo_type,
+        int direction,
+        unsigned flags,
+        bool is_inplace,
+        const std::vector<ptrdiff_t>& shape,
+        Creator&& creator
+    )
     {
-        DistPlanKey key = std::make_tuple(comm_handle, is_double, algo_type, direction, flags, is_inplace, shape);
+        DistPlanKey key{comm_handle, is_double, algo_type, direction, flags, is_inplace, shape};
 
-        std::lock_guard<std::mutex> lock(mtx_);
+        std::scoped_lock lock(mtx_);
         auto it = cache_.find(key);
         if (it != cache_.end()) {
             return it->second;
@@ -46,7 +54,7 @@ public:
 
 // STATIC HELPER: Layout Calculator
 std::tuple<std::vector<long>, std::vector<long>, std::vector<long>, std::vector<long>>
-FFTW_DIST::get_local_info(const std::vector<int>& global_shape, int comm_handle, bool r2c) {
+FFTWMpiDist::get_local_info(const std::vector<int>& global_shape, int comm_handle, bool r2c) {
 
     MPI_Comm comm = get_mpi_comm(comm_handle);
     static bool initialized = false;
@@ -79,7 +87,7 @@ FFTW_DIST::get_local_info(const std::vector<int>& global_shape, int comm_handle,
     }
 }
 
-class FFTW_DIST_C2C : public FFTBase {
+class FFTWMpiDist_C2C : public FFTBase {
     std::vector<int> shape_;
     int ndim_;
     ssize_t global_N_;
@@ -88,10 +96,20 @@ class FFTW_DIST_C2C : public FFTBase {
     void* plan_backward_;
 
 public:
-    FFTW_DIST_C2C(int ndim, const std::vector<int>& shape,
-                 py::array in, py::array out, std::string dtype, MPI_Comm comm)
-        : shape_(shape), ndim_(ndim), global_N_(1), dtype_(dtype),
-          plan_forward_(nullptr), plan_backward_(nullptr)
+    FFTWMpiDist_C2C(
+        int ndim,
+        const std::vector<int>& shape,
+        py::array in,
+        py::array out,
+        std::string dtype,
+        MPI_Comm comm
+    ):
+    shape_(shape),
+    ndim_(ndim),
+    global_N_(1),
+    dtype_(dtype),
+    plan_forward_(nullptr),
+    plan_backward_(nullptr)
     {
         for(int s : shape_) global_N_ *= s;
         std::vector<ptrdiff_t> n(shape_.begin(), shape_.end());
@@ -133,10 +151,11 @@ public:
 
         {
             py::gil_scoped_release release;
-            if (dtype_ == "complex128")
+            if (dtype_ == "complex128") {
                 fftw_mpi_execute_dft((fftw_plan)plan_forward_, (fftw_complex*)i_ptr, (fftw_complex*)o_ptr);
-            else
+            } else {
                 fftwf_mpi_execute_dft((fftwf_plan)plan_forward_, (fftwf_complex*)i_ptr, (fftwf_complex*)o_ptr);
+            }
         }
     }
 
@@ -164,18 +183,18 @@ public:
         }
     }
 
-    ~FFTW_DIST_C2C() {
+    ~FFTWMpiDist_C2C() {
         if (dtype_ == "complex128") {
-            if(plan_forward_) fftw_destroy_plan((fftw_plan)plan_forward_);
-            if(plan_backward_) fftw_destroy_plan((fftw_plan)plan_backward_);
+            if(plan_forward_) { fftw_destroy_plan((fftw_plan)plan_forward_); }
+            if(plan_backward_) { fftw_destroy_plan((fftw_plan)plan_backward_); }
         } else {
-            if(plan_forward_) fftwf_destroy_plan((fftwf_plan)plan_forward_);
-            if(plan_backward_) fftwf_destroy_plan((fftwf_plan)plan_backward_);
+            if(plan_forward_) { fftwf_destroy_plan((fftwf_plan)plan_forward_); }
+            if(plan_backward_) { fftwf_destroy_plan((fftwf_plan)plan_backward_); }
         }
     }
 };
 
-class FFTW_DIST_R2C_InPlace : public FFTBase {
+class FFTWMpiDist_R2C_InPlace : public FFTBase {
     std::vector<int> shape_;
     int ndim_;
     ssize_t global_N_;
@@ -184,10 +203,20 @@ class FFTW_DIST_R2C_InPlace : public FFTBase {
     void* plan_c2r_;
 
 public:
-    FFTW_DIST_R2C_InPlace(int ndim, const std::vector<int>& shape,
-                         py::array in, py::array out, std::string dtype, MPI_Comm comm)
-        : shape_(shape), ndim_(ndim), global_N_(1), dtype_(dtype),
-          plan_r2c_(nullptr), plan_c2r_(nullptr)
+    FFTWMpiDist_R2C_InPlace(
+        int ndim,
+        const std::vector<int>& shape,
+        py::array in,
+        py::array out,
+        std::string dtype,
+        MPI_Comm comm
+    ):
+    shape_(shape),
+    ndim_(ndim),
+    global_N_(1),
+    dtype_(dtype),
+    plan_r2c_(nullptr),
+    plan_c2r_(nullptr)
     {
         for(int s : shape_) global_N_ *= s;
         std::vector<ptrdiff_t> n(shape_.begin(), shape_.end());
@@ -230,10 +259,11 @@ public:
 
         {
             py::gil_scoped_release release;
-            if (dtype_ == "float64")
+            if (dtype_ == "float64") {
                 fftw_mpi_execute_dft_r2c((fftw_plan)plan_r2c_, (double*)ptr, (fftw_complex*)ptr);
-            else
+            } else {
                 fftwf_mpi_execute_dft_r2c((fftwf_plan)plan_r2c_, (float*)ptr, (fftwf_complex*)ptr);
+            }
         }
     }
 
@@ -259,18 +289,18 @@ public:
         }
     }
 
-    ~FFTW_DIST_R2C_InPlace() {
+    ~FFTWMpiDist_R2C_InPlace() {
         if (dtype_ == "float64") {
-            if(plan_r2c_) fftw_destroy_plan((fftw_plan)plan_r2c_);
-            if(plan_c2r_) fftw_destroy_plan((fftw_plan)plan_c2r_);
+            if(plan_r2c_) { fftw_destroy_plan((fftw_plan)plan_r2c_); }
+            if(plan_c2r_) { fftw_destroy_plan((fftw_plan)plan_c2r_); }
         } else {
-            if(plan_r2c_) fftwf_destroy_plan((fftwf_plan)plan_r2c_);
-            if(plan_c2r_) fftwf_destroy_plan((fftwf_plan)plan_c2r_);
+            if(plan_r2c_) { fftwf_destroy_plan((fftwf_plan)plan_r2c_); }
+            if(plan_c2r_) { fftwf_destroy_plan((fftwf_plan)plan_c2r_); }
         }
     }
 };
 
-class FFTW_DIST_R2C_OutPlace : public FFTBase {
+class FFTWMpiDist_R2C_OutPlace : public FFTBase {
     std::vector<int> shape_;
     int ndim_;
     ssize_t global_N_;
@@ -279,9 +309,18 @@ class FFTW_DIST_R2C_OutPlace : public FFTBase {
     void* plan_c2r_;
 
 public:
-    FFTW_DIST_R2C_OutPlace(int ndim, const std::vector<int>& shape,
-                          py::array in, py::array out, std::string dtype, MPI_Comm comm)
-        : shape_(shape), ndim_(ndim), global_N_(1), dtype_(dtype)
+    FFTWMpiDist_R2C_OutPlace(
+        int ndim,
+        const std::vector<int>& shape,
+        py::array in,
+        py::array out,
+        std::string dtype,
+        MPI_Comm comm
+    ):
+    shape_(shape),
+    ndim_(ndim),
+    global_N_(1),
+    dtype_(dtype)
     {
         for(int s : shape_) global_N_ *= s;
         std::vector<ptrdiff_t> n(shape_.begin(), shape_.end());
@@ -317,10 +356,11 @@ public:
         void* c = out.cast<py::array>().mutable_data();
 
         py::gil_scoped_release release;
-        if (dtype_ == "float64")
+        if (dtype_ == "float64") {
             fftw_mpi_execute_dft_r2c((fftw_plan)plan_r2c_, (double*)r, (fftw_complex*)c);
-        else
+        } else {
             fftwf_mpi_execute_dft_r2c((fftwf_plan)plan_r2c_, (float*)r, (fftwf_complex*)c);
+        }
     }
 
     void backward(py::object in, py::object out) override {
@@ -344,7 +384,7 @@ public:
         }
     }
 
-    ~FFTW_DIST_R2C_OutPlace() {
+    ~FFTWMpiDist_R2C_OutPlace() {
         if (dtype_ == "float64") {
             fftw_destroy_plan((fftw_plan)plan_r2c_);
             fftw_destroy_plan((fftw_plan)plan_c2r_);
@@ -355,7 +395,7 @@ public:
     }
 };
 
-class FFTW_DIST_C2C_Generic : public FFTBase {
+class FFTWMpiDist_C2C_Generic : public FFTBase {
     std::vector<int> shape_;
     int ndim_;
     ssize_t global_N_;
@@ -364,9 +404,19 @@ class FFTW_DIST_C2C_Generic : public FFTBase {
     void* plan_backward_ = nullptr;
 
 public:
-    FFTW_DIST_C2C_Generic(int ndim, const std::vector<int>& shape,
-                 py::array in, py::array out, std::string dtype, MPI_Comm comm, int comm_handle)
-        : shape_(shape), ndim_(ndim), global_N_(1), dtype_(dtype)
+    FFTWMpiDist_C2C_Generic(
+        int ndim,
+        const std::vector<int>& shape,
+        py::array in,
+        py::array out,
+        std::string dtype,
+        MPI_Comm comm,
+        int comm_handle
+    ):
+    shape_(shape),
+    ndim_(ndim),
+    global_N_(1),
+    dtype_(dtype)
     {
         for(int s : shape_) global_N_ *= s;
         std::vector<ptrdiff_t> n(shape_.begin(), shape_.end());
@@ -380,20 +430,22 @@ public:
         plan_forward_ = FFTWDistPlanCache::instance().get_or_create(
             comm_handle, is_double, 0 /*C2C*/, FFTW_FORWARD, flags, is_inplace, n,
             [&]() -> void* {
-                if (is_double)
+                if (is_double) {
                     return fftw_mpi_plan_dft(ndim, n.data(), (fftw_complex*)i_p, (fftw_complex*)o_p, comm, FFTW_FORWARD, flags);
-                else
+                } else {
                     return fftwf_mpi_plan_dft(ndim, n.data(), (fftwf_complex*)i_p, (fftwf_complex*)o_p, comm, FFTW_FORWARD, flags);
+                }
             }
         );
 
         plan_backward_ = FFTWDistPlanCache::instance().get_or_create(
             comm_handle, is_double, 0 /*C2C*/, FFTW_BACKWARD, flags, is_inplace, n,
             [&]() -> void* {
-                if (is_double)
+                if (is_double) {
                     return fftw_mpi_plan_dft(ndim, n.data(), (fftw_complex*)i_p, (fftw_complex*)o_p, comm, FFTW_BACKWARD, flags);
-                else
+                } else {
                     return fftwf_mpi_plan_dft(ndim, n.data(), (fftwf_complex*)i_p, (fftwf_complex*)o_p, comm, FFTW_BACKWARD, flags);
+                }
             }
         );
     }
@@ -406,10 +458,11 @@ public:
 
         {
             py::gil_scoped_release release;
-            if (dtype_ == "complex128")
+            if (dtype_ == "complex128") {
                 fftw_mpi_execute_dft((fftw_plan)plan_forward_, (fftw_complex*)i_ptr, (fftw_complex*)o_ptr);
-            else
+            } else {
                 fftwf_mpi_execute_dft((fftwf_plan)plan_forward_, (fftwf_complex*)i_ptr, (fftwf_complex*)o_ptr);
+            }
         }
     }
 
@@ -435,7 +488,7 @@ public:
     }
 };
 
-class FFTW_DIST_R2C_Generic : public FFTBase {
+class FFTWMpiDist_R2C_Generic : public FFTBase {
     std::vector<int> shape_;
     int ndim_;
     ssize_t global_N_;
@@ -445,9 +498,19 @@ class FFTW_DIST_R2C_Generic : public FFTBase {
     void* plan_c2r_ = nullptr;
 
 public:
-    FFTW_DIST_R2C_Generic(int ndim, const std::vector<int>& shape,
-                         py::array in, py::array out, std::string dtype, MPI_Comm comm, int comm_handle)
-        : shape_(shape), ndim_(ndim), global_N_(1), dtype_(dtype)
+    FFTWMpiDist_R2C_Generic(
+        int ndim,
+        const std::vector<int>& shape,
+        py::array in,
+        py::array out,
+        std::string dtype,
+        MPI_Comm comm,
+        int comm_handle
+    ):
+    shape_(shape),
+    ndim_(ndim),
+    global_N_(1),
+    dtype_(dtype)
     {
         for(int s : shape_) global_N_ *= s;
         std::vector<ptrdiff_t> n(shape_.begin(), shape_.end());
@@ -462,20 +525,22 @@ public:
         plan_r2c_ = FFTWDistPlanCache::instance().get_or_create(
             comm_handle, is_double, 1 /*R2C*/, FFTW_FORWARD, flags, is_inplace_, n,
             [&]() -> void* {
-                if (is_double)
+                if (is_double) {
                     return fftw_mpi_plan_dft_r2c(ndim, n.data(), (double*)rp, (fftw_complex*)cp, comm, flags);
-                else
+                } else {
                     return fftwf_mpi_plan_dft_r2c(ndim, n.data(), (float*)rp, (fftwf_complex*)cp, comm, flags);
+                }
             }
         );
 
         plan_c2r_ = FFTWDistPlanCache::instance().get_or_create(
             comm_handle, is_double, 2 /*C2R*/, FFTW_BACKWARD, flags, is_inplace_, n,
             [&]() -> void* {
-                if (is_double)
+                if (is_double) {
                     return fftw_mpi_plan_dft_c2r(ndim, n.data(), (fftw_complex*)cp, (double*)rp, comm, flags);
-                else
+                } else {
                     return fftwf_mpi_plan_dft_c2r(ndim, n.data(), (fftwf_complex*)cp, (float*)rp, comm, flags);
+                }
             }
         );
 
@@ -492,10 +557,11 @@ public:
 
         {
             py::gil_scoped_release release;
-            if (dtype_ == "float64")
+            if (dtype_ == "float64") {
                 fftw_mpi_execute_dft_r2c((fftw_plan)plan_r2c_, (double*)rp, (fftw_complex*)cp);
-            else
+            } else {
                 fftwf_mpi_execute_dft_r2c((fftwf_plan)plan_r2c_, (float*)rp, (fftwf_complex*)cp);
+            }
         }
     }
 
@@ -523,36 +589,41 @@ public:
     }
 };
 
-FFTW_DIST::FFTW_DIST(const std::vector<int>& global_shape,
-                   py::array in, py::array out,
-                   const std::string& dtype, int comm_handle)
+FFTWMpiDist::FFTWMpiDist(
+    const std::vector<int>& shape,
+    py::array in,
+    py::array out,
+    const std::string& dtype,
+    int comm_handle
+)
 {
     static bool initialized = false;
     if (!initialized) { fftw_mpi_init(); initialized = true; }
 
     MPI_Comm comm = get_mpi_comm(comm_handle);
-    int ndim = global_shape.size();
+    int ndim = shape.size();
     bool use_hardcoded = (ndim == 2 || ndim == 3);
 
     if (dtype == "complex128" || dtype == "complex64") {
-        impl_ = std::make_unique<FFTW_DIST_C2C_Generic>(ndim, global_shape, in, out, dtype, comm, comm_handle);
+        impl_ = std::make_unique<FFTWMpiDist_C2C_Generic>(ndim, shape, in, out, dtype, comm, comm_handle);
     } else {
         if (in.ptr() == out.ptr()) {
-            if (use_hardcoded)
-                impl_ = std::make_unique<FFTW_DIST_R2C_InPlace>(ndim, global_shape, in, out, dtype, comm);
-            else
-                impl_ = std::make_unique<FFTW_DIST_R2C_Generic>(ndim, global_shape, in, out, dtype, comm, comm_handle);
+            if (use_hardcoded) {
+                impl_ = std::make_unique<FFTWMpiDist_R2C_InPlace>(ndim, shape, in, out, dtype, comm);
+            } else {
+                impl_ = std::make_unique<FFTWMpiDist_R2C_Generic>(ndim, shape, in, out, dtype, comm, comm_handle);
+            }
         } else {
-            PyErr_SetString(PyExc_NotImplementedError, "R2C Out-of-Place not supported. Please use In-Place with a padded buffer.");
+            PyErr_SetString(PyExc_NotImplementedError, "FFTW-MPI: R2C Out-of-Place not supported. Please use In-Place with a padded buffer.");
             throw pybind11::error_already_set();
             // if (use_hardcoded)
-            //     impl_ = std::make_unique<FFTW_DIST_R2C_OutPlace>(ndim, global_shape, in, out, dtype, comm);
+            //     impl_ = std::make_unique<FFTWMpiDist_R2C_OutPlace>(ndim, shape, in, out, dtype, comm);
             // else
-            //     impl_ = std::make_unique<FFTW_DIST_R2C_Generic>(ndim, global_shape, in, out, dtype, comm, comm_handle);
+            //     impl_ = std::make_unique<FFTWMpiDist_R2C_Generic>(ndim, shape, in, out, dtype, comm, comm_handle);
         }
     }
 }
 
-void FFTW_DIST::forward(py::object in, py::object out) { impl_->forward(in, out); }
-void FFTW_DIST::backward(py::object in, py::object out) { impl_->backward(in, out); }
-FFTW_DIST::~FFTW_DIST() = default;
+void FFTWMpiDist::forward(py::object in, py::object out) { impl_->forward(in, out); }
+void FFTWMpiDist::backward(py::object in, py::object out) { impl_->backward(in, out); }
+FFTWMpiDist::~FFTWMpiDist() = default;

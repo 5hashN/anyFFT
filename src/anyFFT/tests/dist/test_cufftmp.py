@@ -25,239 +25,118 @@ comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
 BACKEND = "cufftmp"
 
-
-def test_c2c_in_place(real_dtype_str, global_shape, ndim):
-    c_dtype_str = test_utils.get_c2c_dtype_str(real_dtype_str)
-    test_name = "[C2C In-Place ]"
-    test_id = f"{test_name} {global_shape} {c_dtype_str}"
-    test_utils.print_test_start(test_name, c_dtype_str, rank)
-    _, complex_dtype = test_utils.get_cupy_types(real_dtype_str)
-
-    try:
-        in_shape, in_start, _, _ = anyFFT.cufft_mpi.get_local_info(
-            ndim, global_shape, comm.py2f(), False
-        )
-    except Exception as e:
-        test_utils.print_skipped(str(e), rank)
-        return None
-
-    data_buffer = cp.zeros(in_shape, dtype=complex_dtype)
-
-    host_data = test_utils.generate_data(
-        in_shape,
-        np.complex128 if real_dtype_str == "float64" else np.complex64,
-        start_indices=in_start,
-    )
-    data_buffer[:] = cp.asarray(host_data)
-    clean_input = data_buffer.copy()
-
-    try:
-        fft = FFT(
-            ndim, global_shape, input=data_buffer, output=data_buffer,
-            comm=comm, dtype=c_dtype_str, backend=BACKEND
-        )
-
-        fft.forward(data_buffer, data_buffer)
-        fft.backward(data_buffer, data_buffer)
-
-        local_diff = cp.max(cp.abs(clean_input - data_buffer)).item()
-        global_diff = comm.allreduce(local_diff, op=MPI.MAX)
-        passed = test_utils.print_test_result(global_diff, rank=rank)
-
-        return (passed, test_id, f"Diff: {global_diff:.2e}")
-
-    except NotImplementedError as e:
-        test_utils.print_skipped(str(e), rank)
-        return None
-
-    except Exception as e:
-        test_utils.print_test_result(0, rank=rank, error=e)
-        return (False, test_id, str(e))
+TOTAL_TESTS = 0
+PASSED_TESTS = 0
+FAILED_TESTS = []
 
 
-def test_c2c_out_of_place(real_dtype_str, global_shape, ndim):
-    c_dtype_str = test_utils.get_c2c_dtype_str(real_dtype_str)
-    test_name = "[C2C Out-Place]"
-    test_id = f"{test_name} {global_shape} {c_dtype_str}"
-    test_utils.print_test_start(test_name, c_dtype_str, rank)
-    _, complex_dtype = test_utils.get_cupy_types(real_dtype_str)
+def run_cufftmp_test(global_shape, dtype_str, is_r2c=False, is_inplace=False):
+    global TOTAL_TESTS, PASSED_TESTS
+    TOTAL_TESTS += 1
 
-    try:
-        in_shape, in_start, _, _ = anyFFT.cufft_mpi.get_local_info(
-            ndim, global_shape, comm.py2f(), False
-        )
-    except Exception as e:
-        test_utils.print_skipped(str(e), rank)
-        return None
+    ndim = len(global_shape)
+    test_type = "R2C" if is_r2c else "C2C"
+    place_str = "In-Place" if is_inplace else "Out-Place"
 
-    local_in = cp.zeros(in_shape, dtype=complex_dtype)
-    local_out = cp.empty_like(local_in)
-    local_back = cp.empty_like(local_in)
-
-    host_data = test_utils.generate_data(
-        in_shape,
-        np.complex128 if real_dtype_str == "float64" else np.complex64,
-        start_indices=in_start,
-    )
-    local_in[:] = cp.asarray(host_data)
-    local_in_ref = local_in.copy()
-
-    try:
-        fft = FFT(
-            ndim, global_shape, input=local_in, output=local_out,
-            comm=comm, dtype=c_dtype_str, backend=BACKEND
-        )
-
-        fft.forward(local_in, local_out)
-        fft.backward(local_out, local_back)
-
-        local_diff = cp.max(cp.abs(local_in_ref - local_back)).item()
-        global_diff = comm.allreduce(local_diff, op=MPI.MAX)
-        passed = test_utils.print_test_result(global_diff, rank=rank)
-
-        return (passed, test_id, f"Diff: {global_diff:.2e}")
-
-    except NotImplementedError as e:
-        test_utils.print_skipped(str(e), rank)
-        return None
-
-    except Exception as e:
-        test_utils.print_test_result(0, rank=rank, error=e)
-        return (False, test_id, str(e))
-
-
-def test_r2c_in_place(dtype_str, global_shape, ndim):
-    test_name = "[R2C In-Place ]"
-    test_id = f"{test_name} {global_shape} {dtype_str}"
-    test_utils.print_test_start(test_name, dtype_str, rank)
-
+    full_dtype_str = dtype_str if is_r2c else test_utils.get_c2c_dtype_str(dtype_str)
     real_dtype, complex_dtype = test_utils.get_cupy_types(dtype_str)
-    np_real, _ = test_utils.get_numpy_types(dtype_str)
+    np_real, np_complex = test_utils.get_numpy_types(dtype_str)
+
+    test_id = f"[{test_type} {place_str}] {global_shape} | {full_dtype_str}"
+    test_utils.print_test_start(f"[{test_type} {place_str}] {global_shape}", full_dtype_str, rank)
 
     try:
         in_shape, in_start, out_shape, out_start = anyFFT.cufft_mpi.get_local_info(
-            ndim, global_shape, comm.py2f(), True
+            ndim, global_shape, comm.py2f(), is_r2c
         )
     except Exception as e:
         test_utils.print_skipped(str(e), rank)
-        return None
-
-    data_buffer = cp.zeros(out_shape, dtype=complex_dtype)
-    real_view = data_buffer.view(real_dtype)
-
-    if ndim == 3:
-        valid_slice = real_view[:, :, : global_shape[2]]
-    else:
-        valid_slice = real_view[:, : global_shape[1]]
-
-    host_data = test_utils.generate_data(in_shape, np_real, start_indices=out_start)
-    valid_slice[:] = cp.asarray(host_data)
-    clean_input = valid_slice.copy()
+        return
 
     try:
+        if not is_r2c:
+            in_buffer = cp.zeros(in_shape, dtype=complex_dtype)
+            host_data = test_utils.generate_data(in_shape, np_complex, start_indices=in_start)
+            in_buffer[:] = cp.asarray(host_data)
+
+            if is_inplace:
+                out_buffer = in_buffer
+                ref_input = in_buffer.copy()
+            else:
+                out_buffer = cp.empty_like(in_buffer)
+                ref_input = in_buffer.copy()
+
+        else:
+            if is_inplace:
+                out_buffer = cp.zeros(out_shape, dtype=complex_dtype)
+                real_view = out_buffer.view(real_dtype)
+
+                if ndim == 3:
+                    valid_slice = real_view[:, :, : global_shape[2]]
+                else:
+                    valid_slice = real_view[:, : global_shape[1]]
+
+                host_data = test_utils.generate_data(in_shape, np_real, start_indices=out_start)
+                valid_slice[:] = cp.asarray(host_data)
+                in_buffer = out_buffer
+                ref_input = valid_slice.copy()
+            else:
+                in_buffer = cp.zeros(in_shape, dtype=real_dtype)
+                host_data = test_utils.generate_data(in_shape, np_real, start_indices=in_start)
+                in_buffer[:] = cp.asarray(host_data)
+                out_buffer = cp.zeros(out_shape, dtype=complex_dtype)
+                ref_input = in_buffer.copy()
+
         fft = FFT(
-            ndim, global_shape, input=data_buffer, output=data_buffer,
-            comm=comm, dtype=dtype_str, backend=BACKEND
+            ndim, global_shape, input=in_buffer, output=out_buffer,
+            comm=comm, dtype=full_dtype_str, backend=BACKEND
         )
 
-        fft.forward(data_buffer, data_buffer)
-        fft.backward(data_buffer, data_buffer)
+        fft.forward(in_buffer, out_buffer)
 
-        local_diff = cp.max(cp.abs(clean_input - valid_slice)).item()
+        if is_inplace:
+            fft.backward(out_buffer, in_buffer)
+            result = valid_slice if (is_r2c and is_inplace) else in_buffer
+        else:
+            back_buffer = cp.empty_like(in_buffer)
+            fft.backward(out_buffer, back_buffer)
+            result = back_buffer
+
+        local_diff = cp.max(cp.abs(ref_input - result)).item()
         global_diff = comm.allreduce(local_diff, op=MPI.MAX)
-        passed = test_utils.print_test_result(global_diff, rank=rank)
 
-        return (passed, test_id, f"Diff: {global_diff:.2e}")
+        tol = 1e-4 if "float32" in dtype_str else 1e-12
+        passed = test_utils.print_test_result(global_diff, tol=tol, rank=rank)
+
+        if passed:
+            PASSED_TESTS += 1
+        else:
+            FAILED_TESTS.append(f"{test_id} -> Failed (Diff: {global_diff:.2e})")
 
     except NotImplementedError as e:
         test_utils.print_skipped(str(e), rank)
-        return None
-
     except Exception as e:
         test_utils.print_test_result(0, rank=rank, error=e)
-        return (False, test_id, str(e))
-
-
-def test_r2c_out_of_place(dtype_str, global_shape, ndim):
-    test_name = "[R2C Out-Place]"
-    test_id = f"{test_name} {global_shape} {dtype_str}"
-    test_utils.print_test_start(test_name, dtype_str, rank)
-    real_dtype, complex_dtype = test_utils.get_cupy_types(dtype_str)
-    np_real, _ = test_utils.get_numpy_types(dtype_str)
-
-    try:
-        in_shape, in_start, out_shape, out_start = anyFFT.cufft_mpi.get_local_info(
-            ndim, global_shape, comm.py2f(), True
-        )
-    except Exception as e:
-        test_utils.print_skipped(str(e), rank)
-        return None
-
-    local_real = cp.zeros(in_shape, dtype=real_dtype)
-    local_complex = cp.zeros(out_shape, dtype=complex_dtype)
-    local_back = cp.empty_like(local_real)
-
-    host_data = test_utils.generate_data(in_shape, np_real, start_indices=in_start)
-    local_real[:] = cp.asarray(host_data)
-    local_real_ref = local_real.copy()
-
-    try:
-        fft = FFT(
-            ndim, global_shape, input=local_real, output=local_complex,
-            comm=comm, dtype=dtype_str, backend=BACKEND
-        )
-        fft.forward(local_real, local_complex)
-        fft.backward(local_complex, local_back)
-
-        local_diff = cp.max(cp.abs(local_real_ref - local_back)).item()
-        global_diff = comm.allreduce(local_diff, op=MPI.MAX)
-        passed = test_utils.print_test_result(global_diff, rank=rank)
-
-        return (passed, test_id, f"Diff: {global_diff:.2e}")
-
-    except NotImplementedError as e:
-        test_utils.print_skipped(str(e), rank)
-        return None
-
-    except Exception as e:
-        test_utils.print_test_result(0, rank=rank, error=e)
-        return (False, test_id, str(e))
+        FAILED_TESTS.append(f"{test_id} -> Error: {str(e)}")
 
 
 def main():
     test_utils.print_header(BACKEND, comm)
-
     configs = [(2, [1024, 1024]), (3, [128, 128, 128])]
     dtypes = ["float64", "float32"]
-
-    total_tests = 0
-    passed_tests = 0
-    failed_tests = []
-
-    def run_t(func, *args):
-        nonlocal total_tests, passed_tests, failed_tests
-        res = func(*args)
-        if res is None: return
-        total_tests += 1
-        is_pass, t_id, err_msg = res
-        if is_pass:
-            passed_tests += 1
-        else:
-            failed_tests.append(f"{t_id} -> {err_msg}")
 
     for ndim, shape in configs:
         test_utils.print_section(f"Config: {ndim}D | Shape: {shape}", rank)
         for dtype in dtypes:
-            run_t(test_r2c_out_of_place, dtype, shape, ndim)
-            run_t(test_r2c_in_place, dtype, shape, ndim)
-            run_t(test_c2c_out_of_place, dtype, shape, ndim)
-            run_t(test_c2c_in_place, dtype, shape, ndim)
+            run_cufftmp_test(shape, dtype, is_r2c=False, is_inplace=False)
+            run_cufftmp_test(shape, dtype, is_r2c=False, is_inplace=True)
+            run_cufftmp_test(shape, dtype, is_r2c=True,  is_inplace=False)
+            run_cufftmp_test(shape, dtype, is_r2c=True,  is_inplace=True)
 
-    test_utils.print_summary(total_tests, passed_tests, failed_tests, rank)
+    test_utils.print_summary(TOTAL_TESTS, PASSED_TESTS, FAILED_TESTS, rank)
 
-    if failed_tests:
+    if FAILED_TESTS and rank == 0:
         sys.exit(1)
-
 
 if __name__ == "__main__":
     main()

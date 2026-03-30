@@ -83,9 +83,12 @@ struct Box3D {
 };
 
 // Helper: Calculate Local Box based on Rank and Process Grid [p0, p1]
-Box3D calculate_local_box(int rank, const std::vector<int>& proc_grid,
-                          const std::vector<int>& global_shape,
-                          bool is_r2c_complex_side)
+Box3D calculate_local_box(
+    int rank,
+    const std::vector<int>& grid,
+    const std::vector<int>& global_shape,
+    bool is_r2c_complex_side
+)
 {
     int ndim = global_shape.size();
     Box3D box = {{0,0,0}, {0,0,0}};
@@ -105,8 +108,8 @@ Box3D calculate_local_box(int rank, const std::vector<int>& proc_grid,
     // Parse Process Grid
     // [p0, p1]. If p1=1 (or not provided), it is 1D Slab.
     // If p0>1 and p1>1, it is 2D Pencil.
-    int p0 = proc_grid.empty() ? 1 : proc_grid[0];
-    int p1 = proc_grid.size() > 1 ? proc_grid[1] : 1;
+    int p0 = grid.empty() ? 1 : grid[0];
+    int p1 = grid.size() > 1 ? grid[1] : 1;
 
     // Map linear rank to (row, col) coordinates in the process grid
     int r_row = rank / p1;
@@ -144,15 +147,19 @@ Box3D calculate_local_box(int rank, const std::vector<int>& proc_grid,
 
 // Returns: (local_shape_in, local_start_in, local_shape_out, local_start_out)
 std::tuple<std::vector<long>, std::vector<long>, std::vector<long>, std::vector<long>>
-CUFFT_MPI::get_local_info(int ndim, const std::vector<int>& global_shape,
-                          const std::vector<int>& proc_grid, int comm_handle, bool r2c)
+cufftMpDist::get_local_info(
+    int ndim,
+    const std::vector<int>& global_shape,
+    const std::vector<int>& grid,
+    int comm_handle,
+    bool r2c)
 {
     MPI_Comm comm = get_mpi_comm(comm_handle);
     int rank;
     MPI_Comm_rank(comm, &rank);
 
     // Calculate Real Box (Input)
-    Box3D real_box = calculate_local_box(rank, proc_grid, global_shape, false);
+    Box3D real_box = calculate_local_box(rank, grid, global_shape, false);
 
     std::vector<long> shape_in, start_in;
     for(int i=0; i<ndim; ++i) {
@@ -165,7 +172,7 @@ CUFFT_MPI::get_local_info(int ndim, const std::vector<int>& global_shape,
         return {shape_in, start_in, shape_in, start_in};
     } else {
         // R2C: Output is Complex Box
-        Box3D complex_box = calculate_local_box(rank, proc_grid, global_shape, true);
+        Box3D complex_box = calculate_local_box(rank, grid, global_shape, true);
         std::vector<long> shape_out, start_out;
         for(int i=0; i<ndim; ++i) {
             shape_out.push_back(complex_box.upper[i] - complex_box.lower[i]);
@@ -175,21 +182,27 @@ CUFFT_MPI::get_local_info(int ndim, const std::vector<int>& global_shape,
     }
 }
 
-void apply_distribution(cufftHandle plan, int ndim, const std::vector<int>& global_shape,
-                        const std::vector<int>& proc_grid, int comm_handle, bool is_r2c)
+void apply_distribution(
+    cufftHandle plan,
+    int ndim,
+    const std::vector<int>& global_shape,
+    const std::vector<int>& grid,
+    int comm_handle,
+    bool is_r2c
+)
 {
     MPI_Comm comm = get_mpi_comm(comm_handle);
     int rank;
     MPI_Comm_rank(comm, &rank);
 
     // Calculate Input Box
-    Box3D box_in = calculate_local_box(rank, proc_grid, global_shape, false);
+    Box3D box_in = calculate_local_box(rank, grid, global_shape, false);
 
     // Calculate Output Box
     // For R2C: Output is Complex (Halved last dim)
     // For C2C: Output is same as Input
     Box3D box_out;
-    if (is_r2c) box_out = calculate_local_box(rank, proc_grid, global_shape, true);
+    if (is_r2c) box_out = calculate_local_box(rank, grid, global_shape, true);
     else box_out = box_in;
 
     // Convert to arrays for cufftXtSetDistribution
@@ -211,7 +224,7 @@ void apply_distribution(cufftHandle plan, int ndim, const std::vector<int>& glob
                                        input_strides, output_strides));
 }
 
-class CUFFT_DIST_C2C : public FFTBase {
+class cufftMpDist_C2C : public FFTBase {
     cufftHandle plan_;
     void* work_area_ = nullptr;
     ssize_t global_N_;
@@ -219,9 +232,15 @@ class CUFFT_DIST_C2C : public FFTBase {
     MPI_Comm comm_;
 
 public:
-    CUFFT_DIST_C2C(int ndim, const std::vector<int>& shape, const std::vector<int>& proc_grid,
-                   int comm_handle, std::string dtype)
-        : global_N_(1), dtype_(dtype)
+    cufftMpDist_C2C(
+        int ndim,
+        const std::vector<int>& shape,
+        const std::vector<int>& grid,
+        int comm_handle,
+        std::string dtype
+    ):
+    global_N_(1),
+    dtype_(dtype)
     {
         comm_ = get_mpi_comm(comm_handle);
         setup_local_device(comm_);
@@ -233,17 +252,20 @@ public:
         CUFFT_CHECK(cufftMpAttachComm(plan_, CUFFT_COMM_MPI, &comm_));
 
         // Apply Slab/Pencil Distribution
-        apply_distribution(plan_, ndim, shape, proc_grid, comm_handle, false);
+        apply_distribution(plan_, ndim, shape, grid, comm_handle, false);
 
         size_t ws = 0;
         cufftType t_c2c = (dtype_ == "complex128") ? CUFFT_Z2Z : CUFFT_C2C;
         std::vector<long long> n_long(shape.begin(), shape.end());
 
-        if (ndim == 3) CUFFT_CHECK(cufftMakePlan3d(plan_, n_long[0], n_long[1], n_long[2], t_c2c, &ws));
-        else CUFFT_CHECK(cufftMakePlan2d(plan_, n_long[0], n_long[1], t_c2c, &ws));
+        if (ndim == 3) {
+            CUFFT_CHECK(cufftMakePlan3d(plan_, n_long[0], n_long[1], n_long[2], t_c2c, &ws));
+        } else {
+            CUFFT_CHECK(cufftMakePlan2d(plan_, n_long[0], n_long[1], t_c2c, &ws));
+        }
 
         work_area_ = allocate_workspace(ws);
-        if (ws > 0) CUFFT_CHECK(cufftSetWorkArea(plan_, work_area_));
+        if (ws > 0) { CUFFT_CHECK(cufftSetWorkArea(plan_, work_area_)); }
     }
 
     void forward(py::object in, py::object out) override {
@@ -251,10 +273,11 @@ public:
         uintptr_t o_ptr = out.attr("data").attr("ptr").cast<uintptr_t>();
 
         py::gil_scoped_release release;
-        if (dtype_ == "complex128")
+        if (dtype_ == "complex128") {
             CUFFT_CHECK(cufftExecZ2Z(plan_, (cufftDoubleComplex*)i_ptr, (cufftDoubleComplex*)o_ptr, CUFFT_FORWARD))
-        else
+        } else {
             CUFFT_CHECK(cufftExecC2C(plan_, (cufftComplex*)i_ptr, (cufftComplex*)o_ptr, CUFFT_FORWARD));
+        }
         CUDA_CHECK(cudaDeviceSynchronize());
     }
 
@@ -271,25 +294,27 @@ public:
         int grid = (local_elements + block - 1) / block;
 
         py::gil_scoped_release release;
-        if (dtype_ == "complex128")
+        if (dtype_ == "complex128") {
             CUFFT_CHECK(cufftExecZ2Z(plan_, (cufftDoubleComplex*)i_ptr, (cufftDoubleComplex*)o_ptr, CUFFT_INVERSE))
-        else
+        } else {
             CUFFT_CHECK(cufftExecC2C(plan_, (cufftComplex*)i_ptr, (cufftComplex*)o_ptr, CUFFT_INVERSE));
+        }
 
-        if (dtype_ == "complex128")
+        if (dtype_ == "complex128") {
             scale_kernel_mpi<double><<<grid, block>>>((double*)o_ptr, (double)global_N_, local_elements);
-        else
+        } else {
             scale_kernel_mpi<float><<<grid, block>>>((float*)o_ptr, (float)global_N_, local_elements);
+        }
         CUDA_CHECK(cudaDeviceSynchronize());
     }
 
-    ~CUFFT_DIST_C2C() {
+    ~cufftMpDist_C2C() {
         free_workspace(work_area_);
         cufftDestroy(plan_);
     }
 };
 
-class CUFFT_DIST_R2C : public FFTBase {
+class cufftMpDist_R2C : public FFTBase {
     cufftHandle plan_r2c_;
     cufftHandle plan_c2r_;
     void* work_area_r2c_ = nullptr;
@@ -300,9 +325,17 @@ class CUFFT_DIST_R2C : public FFTBase {
     bool inplace_;
 
 public:
-    CUFFT_DIST_R2C(int ndim, const std::vector<int>& shape, const std::vector<int>& proc_grid,
-                   int comm_handle, std::string dtype, bool inplace)
-        : global_N_(1), dtype_(dtype), inplace_(inplace)
+    cufftMpDist_R2C(
+        int ndim,
+        const std::vector<int>& shape,
+        const std::vector<int>& grid,
+        int comm_handle,
+        std::string dtype,
+        bool inplace
+    ):
+    global_N_(1),
+    dtype_(dtype),
+    inplace_(inplace)
     {
         MPI_Comm comm = get_mpi_comm(comm_handle);
         setup_local_device(comm);
@@ -320,8 +353,8 @@ public:
         MPI_Comm_rank(comm, &rank);
 
         // Calculate logical boxes (Valid Data)
-        Box3D real_box = calculate_local_box(rank, proc_grid, shape, false);
-        Box3D complex_box = calculate_local_box(rank, proc_grid, shape, true);
+        Box3D real_box = calculate_local_box(rank, grid, shape, false);
+        Box3D complex_box = calculate_local_box(rank, grid, shape, true);
 
         long long real_lower[3]={0}, real_upper[3]={1}, real_strides[3]={1};
         long long comp_lower[3]={0}, comp_upper[3]={1}, comp_strides[3]={1};
@@ -357,10 +390,10 @@ public:
         }
 
         work_area_r2c_ = allocate_workspace(ws_r2c);
-        if (ws_r2c > 0) CUFFT_CHECK(cufftSetWorkArea(plan_r2c_, work_area_r2c_));
+        if (ws_r2c > 0) { CUFFT_CHECK(cufftSetWorkArea(plan_r2c_, work_area_r2c_)); }
 
         work_area_c2r_ = allocate_workspace(ws_c2r);
-        if (ws_c2r > 0) CUFFT_CHECK(cufftSetWorkArea(plan_c2r_, work_area_c2r_));
+        if (ws_c2r > 0) { CUFFT_CHECK(cufftSetWorkArea(plan_c2r_, work_area_c2r_)); }
     }
 
     void forward(py::object in, py::object out) override {
@@ -370,10 +403,11 @@ public:
         if (inplace_ && i_ptr != o_ptr) throw std::runtime_error("cuFFT MPI R2C: R2C configured as In-Place, but pointers differ.");
 
         py::gil_scoped_release release;
-        if (dtype_ == "float64")
+        if (dtype_ == "float64") {
             CUFFT_CHECK(cufftExecD2Z(plan_r2c_, (cufftDoubleReal*)i_ptr, (cufftDoubleComplex*)o_ptr))
-        else
+        } else {
             CUFFT_CHECK(cufftExecR2C(plan_r2c_, (cufftReal*)i_ptr, (cufftComplex*)o_ptr));
+        }
         CUDA_CHECK(cudaDeviceSynchronize());
     }
 
@@ -382,24 +416,26 @@ public:
         uintptr_t o_ptr = out.attr("data").attr("ptr").cast<uintptr_t>();
 
         py::gil_scoped_release release;
-        if (dtype_ == "float64")
+        if (dtype_ == "float64") {
             CUFFT_CHECK(cufftExecZ2D(plan_c2r_, (cufftDoubleComplex*)i_ptr, (cufftDoubleReal*)o_ptr))
-        else
+        } else {
             CUFFT_CHECK(cufftExecC2R(plan_c2r_, (cufftComplex*)i_ptr, (cufftReal*)o_ptr));
+        }
 
         // Normalize
         ssize_t out_elements = out.attr("size").cast<ssize_t>();
         int block = 256;
         int grid = (out_elements + block - 1) / block;
 
-        if (dtype_ == "float64")
+        if (dtype_ == "float64") {
             scale_kernel_mpi<double><<<grid, block>>>((double*)o_ptr, (double)global_N_, out_elements);
-        else
+        } else {
             scale_kernel_mpi<float><<<grid, block>>>((float*)o_ptr, (float)global_N_, out_elements);
+        }
         CUDA_CHECK(cudaDeviceSynchronize());
     }
 
-    ~CUFFT_DIST_R2C() {
+    ~cufftMpDist_R2C() {
         free_workspace(work_area_r2c_);
         free_workspace(work_area_c2r_);
         cufftDestroy(plan_r2c_);
@@ -407,23 +443,27 @@ public:
     }
 };
 
-CUFFT_DIST::CUFFT_DIST(const std::vector<int>& shape,
-                       const std::vector<int>& proc_grid,
-                       py::object in, py::object out,
-                       int comm_handle,
-                       const std::string& dtype)
+cufftMpDist::cufftMpDist(
+    const std::vector<int>& shape,
+    const std::vector<int>& grid,
+    py::object in,
+    py::object out,
+    const std::string& dtype,
+    int comm_handle
+)
 {
     uintptr_t i_ptr = in.attr("data").attr("ptr").cast<uintptr_t>();
     uintptr_t o_ptr = out.attr("data").attr("ptr").cast<uintptr_t>();
     int ndim = shape.size();
     bool is_inplace = (i_ptr == o_ptr);
 
-    if (dtype == "complex128" || dtype == "complex64")
-        impl_ = std::make_unique<CUFFT_DIST_C2C>(ndim, shape, proc_grid, comm_handle, dtype);
-    else
-        impl_ = std::make_unique<CUFFT_DIST_R2C>(ndim, shape, proc_grid, comm_handle, dtype, is_inplace);
+    if (dtype == "complex128" || dtype == "complex64") {
+        impl_ = std::make_unique<cufftMpDist_C2C>(ndim, shape, grid, comm_handle, dtype);
+    } else {
+        impl_ = std::make_unique<cufftMpDist_R2C>(ndim, shape, grid, comm_handle, dtype, is_inplace);
+    }
 }
 
-void CUFFT_DIST::forward(py::object in, py::object out) { impl_->forward(in, out); }
-void CUFFT_DIST::backward(py::object in, py::object out) { impl_->backward(in, out); }
-CUFFT_DIST::~CUFFT_DIST() = default;
+void cufftMpDist::forward(py::object in, py::object out) { impl_->forward(in, out); }
+void cufftMpDist::backward(py::object in, py::object out) { impl_->backward(in, out); }
+cufftMpDist::~cufftMpDist() = default;

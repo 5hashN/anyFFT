@@ -15,25 +15,31 @@ Demonstration only. No license granted.
     #include <nvshmemx.h>
 #endif
 
-class CUFFT_DIST : public FFTBase {
+class cufftMpDist : public FFTBase {
+private:
     std::unique_ptr<FFTBase> impl_;
 
 public:
-    CUFFT_DIST(int ndim,
-               const std::vector<int>& shape,
-               const std::vector<int>& proc_grid,
-               py::object in,
-               py::object out,
-               int comm_handle,
-               const std::string& dtype);
-
-    ~CUFFT_DIST();
+    cufftMpDist(
+        const std::vector<int>& shape,
+        const std::vector<int>& grid,
+        py::object in,
+        py::object out,
+        const std::string& dtype,
+        int comm_handle
+    );
 
     void forward(py::object in, py::object out) override;
     void backward(py::object in, py::object out) override;
 
     static std::tuple<std::vector<long>, std::vector<long>, std::vector<long>, std::vector<long>>
-    get_local_info(int ndim, const std::vector<int>& global_shape,
-                   const std::vector<int>& proc_grid,
-                   int comm_handle, bool r2c);
+    get_local_info(
+        int ndim,
+        const std::vector<int>& global_shape,
+        const std::vector<int>& grid,
+        int comm_handle,
+        bool r2c
+    );
+
+    ~cufftMpDist();
 };

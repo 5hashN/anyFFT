@@ -9,17 +9,19 @@ Demonstration only. No license granted.
 #include "anyfft/core/fft_base.hpp"
 #include "anyfft/gpu/translations.cuh"
 
-class GPUFFT_LOCAL : public FFTBase {
+class gpufftLocal : public FFTBase {
 private:
     std::unique_ptr<FFTBase> impl_;
 
 public:
-    GPUFFT_LOCAL(const std::vector<int>& shape,
-                 const std::vector<int>& axes,
-                 const std::string& dtype);
+    gpufftLocal(
+        const std::vector<int>& shape,
+        const std::vector<int>& axes,
+        const std::string& dtype
+    );
 
     void forward(py::object in, py::object out) override;
     void backward(py::object in, py::object out) override;
 
-    ~GPUFFT_LOCAL();
+    ~gpufftLocal();
 };
