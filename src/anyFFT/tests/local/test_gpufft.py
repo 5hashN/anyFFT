@@ -5,35 +5,31 @@ All Rights Reserved.
 Demonstration only. No license granted.
 """
 
+import pytest
+
 import numpy as np
-import sys
-import os
+from .. import test_utils
+import anyFFT
+from anyFFT import FFT, get_gpu_backend_name
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import test_utils
+if not anyFFT.has_backend("gpufft"):
+    pytest.skip("Skipping gpufft tests: Backend not compiled", allow_module_level=True)
 
-try:
-    import cupy as cp
-except ImportError:
-    print("Error: CuPy not installed.")
-    sys.exit(1)
-
-try:
-    from anyFFT import FFT, get_gpu_backend_name
-except ImportError:
-    print("Error: Could not import 'anyFFT'.")
-    sys.exit(1)
-
+cp = pytest.importorskip("cupy")
 BACKEND = get_gpu_backend_name()
 
-TOTAL_TESTS = 0
-PASSED_TESTS = 0
-FAILED_TESTS = []
-
+SCENARIOS = [
+    ([1024], []),
+    ([128, 64], [0]),
+    ([128, 64], [1]),
+    ([128, 64], []),
+    ([16, 32, 32], [0, 1]),
+    ([16, 32, 32], [0, 1, 2]),
+    ([16, 32, 32], [])
+]
 
 def setup_r2c_inplace_buffer_gpu(shape, dtype_str, axes=None):
     real_dtype, complex_dtype = test_utils.get_cupy_types(dtype_str)
-
     complex_shape = list(shape)
     target_axis = axes[-1] if axes else -1
     complex_shape[target_axis] = complex_shape[target_axis] // 2 + 1
@@ -43,131 +39,60 @@ def setup_r2c_inplace_buffer_gpu(shape, dtype_str, axes=None):
 
     slices = [slice(None)] * len(shape)
     slices[target_axis] = slice(0, shape[target_axis])
-    input_real_slice = buffer_real_view[tuple(slices)]
+    return buffer_complex, buffer_real_view[tuple(slices)]
 
-    return buffer_complex, input_real_slice
+@pytest.mark.gpu
+@pytest.mark.parametrize(
+    "shape,axes",
+    SCENARIOS,
+    ids=[f"shape={s}_axes={a}" for s, a in SCENARIOS]
+)
+@pytest.mark.parametrize("dtype_str", ["float64", "float32"])
+@pytest.mark.parametrize("is_r2c", [False, True])
+@pytest.mark.parametrize("is_inplace", [False, True])
+def test_gpufft_local(shape, axes, dtype_str, is_r2c, is_inplace):
+    if is_r2c and is_inplace and axes and ((len(shape) - 1) not in axes):
+        pytest.skip("R2C inplace requires the last dimension to be transformed.")
 
+    full_dtype_str = dtype_str if is_r2c else test_utils.get_c2c_dtype_str(dtype_str)
+    real_np, complex_np = test_utils.get_numpy_types(dtype_str)
+    _, complex_cp = test_utils.get_cupy_types(dtype_str)
 
-def run_gpufft_test(
-    label, shape, dtype_str, axes=None, is_r2c=False, is_inplace=False
-):
-    global TOTAL_TESTS, PASSED_TESTS
-    TOTAL_TESTS += 1
+    host_data = test_utils.generate_data(shape, real_np if is_r2c else complex_np)
+    ref_gpu = cp.asarray(host_data)
 
-    if is_r2c:
-        test_type = "R2C"
-        full_dtype_str = dtype_str
-        real_dtype_np, _ = test_utils.get_numpy_types(dtype_str)
-        _, complex_dtype_cp = test_utils.get_cupy_types(dtype_str)
+    if not is_r2c:
+        if is_inplace:
+            in_buffer, out_buffer = cp.copy(ref_gpu), None
+            out_buffer = in_buffer
+        else:
+            in_buffer, out_buffer = ref_gpu, cp.zeros_like(ref_gpu)
     else:
-        test_type = "C2C"
-        full_dtype_str = test_utils.get_c2c_dtype_str(dtype_str)
-        _, complex_dtype_np = test_utils.get_numpy_types(dtype_str)
-        _, complex_dtype_cp = test_utils.get_cupy_types(dtype_str)
-
-    place_str = "In-Place" if is_inplace else "Out-Place"
-    config_str = f"axes={axes}"
-
-    test_id = f"{label} {test_type} {place_str} | {config_str} | {shape} | {dtype_str}"
-    test_utils.print_test_start(
-        f"[{test_type} {place_str}] {config_str}", full_dtype_str
-    )
+        if is_inplace:
+            buffer_complex, input_real_slice = setup_r2c_inplace_buffer_gpu(shape, dtype_str, axes)
+            input_real_slice[:] = ref_gpu
+            in_buffer, out_buffer = input_real_slice, buffer_complex
+        else:
+            out_shape = list(shape)
+            target_ax = axes[-1] if axes else -1
+            out_shape[target_ax] = out_shape[target_ax] // 2 + 1
+            in_buffer = ref_gpu
+            out_buffer = cp.zeros(out_shape, dtype=complex_cp)
 
     try:
-        host_data = test_utils.generate_data(
-            shape, real_dtype_np if is_r2c else complex_dtype_np
-        )
-        ref_gpu = cp.asarray(host_data)
-
-        if not is_r2c:
-            if is_inplace:
-                in_buffer = cp.copy(ref_gpu)
-                out_buffer = in_buffer
-            else:
-                in_buffer = ref_gpu
-                out_buffer = cp.zeros_like(ref_gpu)
-        else:
-            if is_inplace:
-                buffer_complex, input_real_slice = setup_r2c_inplace_buffer_gpu(
-                    shape, dtype_str, axes
-                )
-                input_real_slice[:] = ref_gpu
-                in_buffer = input_real_slice
-                out_buffer = buffer_complex
-            else:
-                out_shape = list(shape)
-                target_ax = axes[-1] if axes else -1
-                out_shape[target_ax] = out_shape[target_ax] // 2 + 1
-
-                in_buffer = ref_gpu
-                out_buffer = cp.zeros(out_shape, dtype=complex_dtype_cp)
-
-        fft = FFT(
-            shape=tuple(shape), axes=tuple(axes),
-            input=in_buffer, output=out_buffer,
-            dtype=full_dtype_str, backend=BACKEND,
-        )
-
+        fft = FFT(shape=tuple(shape), axes=tuple(axes), input=in_buffer, output=out_buffer, dtype=full_dtype_str, backend=BACKEND)
         fft.forward(in_buffer, out_buffer)
 
-        if is_r2c:
-            if is_inplace:
-                fft.backward(out_buffer, in_buffer)
-                result_gpu = in_buffer
-            else:
-                back_buffer = cp.zeros_like(in_buffer)
-                fft.backward(out_buffer, back_buffer)
-                result_gpu = back_buffer
+        if is_inplace:
+            fft.backward(out_buffer, in_buffer if is_r2c else out_buffer)
+            result_gpu = in_buffer if is_r2c else out_buffer
         else:
-            if is_inplace:
-                fft.backward(out_buffer, out_buffer)
-                result_gpu = out_buffer
-            else:
-                back_buffer = cp.zeros_like(in_buffer)
-                fft.backward(out_buffer, back_buffer)
-                result_gpu = back_buffer
+            result_gpu = cp.zeros_like(in_buffer)
+            fft.backward(out_buffer, result_gpu)
 
-        diff = cp.max(cp.abs(ref_gpu - result_gpu)).item()
-        tol = 1e-4 if "float32" in dtype_str or "complex64" in dtype_str else 1e-12
+    except NotImplementedError as e:
+        pytest.skip(f"Backend limitation: {str(e)}")
 
-        passed = test_utils.print_test_result(diff, tol=tol)
-        if passed:
-            PASSED_TESTS += 1
-        else:
-            FAILED_TESTS.append(f"{test_id} -> Failed (Diff: {diff:.2e})")
-
-    except Exception as e:
-        test_utils.print_test_result(0, error=e)
-        FAILED_TESTS.append(f"{test_id} -> Error: {str(e)}")
-
-
-def main():
-    test_utils.print_header(BACKEND)
-
-    scenarios = [
-        {"shape": [1024], "axes": [], "desc": "1D Full"},
-        {"shape": [128, 64], "axes": [0], "desc": "2D Axis 0"},
-        {"shape": [128, 64], "axes": [1], "desc": "2D Axis 1"},
-        {"shape": [128, 64], "axes": [], "desc": "2D Full"},
-        {"shape": [16, 32, 32], "axes": [0, 1], "desc": "3D Full"},
-        {"shape": [16, 32, 32], "axes": [0, 1, 2], "desc": "3D Full"},
-        {"shape": [16, 32, 32], "axes": [], "desc": "3D Full"},
-    ]
-
-    for sc in scenarios:
-        test_utils.print_section(sc['desc'])
-        for dtype in ["float64", "float32"]:
-            run_gpufft_test("Gen", sc["shape"], dtype, axes=sc["axes"], is_r2c=False, is_inplace=False)
-            run_gpufft_test("Gen", sc["shape"], dtype, axes=sc["axes"], is_r2c=False, is_inplace=True)
-            run_gpufft_test("Gen", sc["shape"], dtype, axes=sc["axes"], is_r2c=True,  is_inplace=False)
-            if not sc["axes"] or ((len(sc["shape"]) - 1) in sc["axes"]):
-                run_gpufft_test("Gen", sc["shape"], dtype, axes=sc["axes"], is_r2c=True, is_inplace=True)
-
-    test_utils.print_summary(TOTAL_TESTS, PASSED_TESTS, FAILED_TESTS)
-
-    if FAILED_TESTS:
-        sys.exit(1)
-
-
-if __name__ == "__main__":
-    main()
+    tol = 1e-4 if "float32" in dtype_str else 1e-12
+    diff = cp.max(cp.abs(ref_gpu - result_gpu)).item()
+    assert diff < tol, f"Max difference {diff:.2e} exceeded tolerance {tol}"

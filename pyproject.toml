@@ -1,22 +1,20 @@
 [build-system]
 requires = [
-    "setuptools>=61",
-    "wheel",
+    "scikit-build-core>=0.8.0",
     "pybind11>=2.13",
-    "numpy>=2.0.0",
-    "mpi4py>=3.1.0; platform_system!='Windows'"
+    "numpy>=2.0.0"
 ]
-build-backend = "setuptools.build_meta"
+build-backend = "scikit_build_core.build"
 
 [project]
 name = "anyFFT"
-version = "0.1.11"
+version = "0.1.12"
 authors = [
     {name="5hashN"}
 ]
 description = "Serial and Parallel FFT bindings with pybind11 for CPU/GPU"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 dependencies = [
     "numpy>=2.0.0",
 ]
@@ -28,8 +26,8 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
+test = ["pytest>=7.0", "pytest-mpi", "mpi4py>=3.1.0"]
 mpi = ["mpi4py>=3.1.0"]
-gpu = ["cupy-cuda12x"]
 
 [project.urls]
 homepage = "https://github.com/5hashN/anyFFT"
@@ -38,8 +36,16 @@ homepage = "https://github.com/5hashN/anyFFT"
 anyfft-test = "anyFFT.cli:run_tests"
 anyfft-bench = "anyFFT.cli:run_benchmarks"
 
-[tool.setuptools]
-include-package-data = true
+[tool.scikit-build]
+wheel.packages = ["src/anyFFT"]
+cmake.build-type = "Release"
 
-[tool.setuptools.packages.find]
-where = ["src"]
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["src/anyFFT/tests"]
+addopts = "--strict-markers"
+markers = [
+    "cpu: marks tests that run purely on the host",
+    "gpu: marks tests that require a CUDA/ROCm device",
+    "mpi: marks tests that require MPI (run with mpiexec)"
+]

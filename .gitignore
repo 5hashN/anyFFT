@@ -24,3 +24,10 @@ plots/
 .DS_Store
 *.swp
 *~
+
+# Pytest specific
+.pytest_cache
+
+# Log files
+*.log
+*.out

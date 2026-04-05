@@ -32,11 +32,13 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
+        allow-prereleases: true
 
     - name: Install System Dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential
+        # Add cmake and ninja-build for scikit-build-core
+        sudo apt-get install -y build-essential cmake ninja-build
 
         # Install only Serial FFTW and OpenMP (No MPI)
         sudo apt-get install -y libfftw3-dev libomp-dev
@@ -44,18 +46,23 @@ jobs:
     - name: Install Python Dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install numpy pybind11 setuptools matplotlib
+        # Optional dependencies for testing/plotting if not handled by your pyproject.toml
+        pip install pytest matplotlib
 
     - name: Compile and Install anyFFT
       run: |
         echo "Using Compiler: $CXX"
         $CXX --version
 
-        # Build verbose to confirm MPI is skipped
-        pip install -v .
+        # Explicitly lock the build to the serial CPU backend using our new CMake flags
+        pip install -v . \
+          -C cmake.define.ANYFFT_USE_FFTW=ON \
+          -C cmake.define.ANYFFT_USE_MPI=OFF \
+          -C cmake.define.ANYFFT_USE_CUDA=OFF \
+          -C cmake.define.ANYFFT_USE_HIP=OFF
 
     - name: Run Test Suite
       run: |
         # This will run only serial FFTW tests.
-        # Parallel tests will self-skip because mpi4py is missing.
+        # GPU and MPI tests will gracefully skip based on your pytest setup.
         anyfft-test

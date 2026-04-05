@@ -314,7 +314,7 @@ def generate_plot(sizes, times_dict, title_prefix, file_path):
     plt.tight_layout()
     plt.savefig(file_path)
     plt.close(fig)
-    print(f"\n{GREEN}Graph saved to '{file_path}'{RESET}\n")
+    print(f"\n{CYAN}Graph saved to '{file_path}'{RESET}\n")
 
 
 def main():

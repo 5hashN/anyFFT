@@ -10,7 +10,7 @@ Demonstration only. No license granted.
 #if defined(ENABLE_HIP)
 
     #include <hip/hip_runtime.h>
-    #include <hipfft.h>
+    #include <hipfft/hipfft.h>
 
     // Core Types
     typedef hipfftHandle        gpufftHandle;

@@ -58,41 +58,86 @@ anyFFT provides a unified `FFT` class, but the underlying libraries have differe
 
 ## Installation
 
+anyFFT uses `scikit-build-core` and CMake to manage its C++ backend. By default, the build system compiles the CPU (FFTW) and Distributed (MPI) backends if the libraries are found in standard system paths.
+
 ### Standard Install
 
-If your libraries are in standard locations (`/usr` or `/usr/local`):
+If your libraries (FFTW3, OpenMPI) are in standard locations (`/usr` or `/usr/local`):
 
 ```Bash
-pip install .
+pip install -v .
+```
+
+To install with development and testing dependencies:
+
+```Bash
+pip install -v ".[test,mpi]"
+```
+
+### GPU Support (NVIDIA / AMD)
+
+GPU backends are disabled by default and must be explicitly enabled via pip. The examples below demonstrate how to compile the GPU backends in editable/development mode (`-e .`) while isolating the build environment to prevent caching issues (`--no-cache-dir`).
+
+**NVIDIA (CUDA):**
+You must specify your CUDA toolkit location and target GPU architecture to ensure modern CMake compiles the extension correctly.
+
+```Bash
+pip install -v -e . --no-cache-dir \
+  -C cmake.define.ANYFFT_USE_CUDA=ON \
+  -C cmake.define.ANYFFT_USE_FFTW=OFF \
+  -C cmake.define.ANYFFT_USE_MPI=OFF \
+  -C cmake.args="-DCUDAToolkit_ROOT=/usr/local/cuda" \
+  -C cmake.args="-DCMAKE_CUDA_ARCHITECTURES=native"
+```
+
+**AMD (HIP / ROCm):**
+To compile for AMD GPUs, enable the HIP backend, disable the others, and specify your ROCm path and target architecture.
+
+```Bash
+ROCM_PATH=/opt/rocm-6.4.0 pip install -v -e . --no-cache-dir \
+  -C cmake.define.ANYFFT_USE_HIP=ON \
+  -C cmake.define.ANYFFT_USE_FFTW=OFF \
+  -C cmake.define.ANYFFT_USE_MPI=OFF \
+  -C cmake.define.CMAKE_HIP_ARCHITECTURES="gfx90a"
 ```
 
 ### Building on Clusters (Custom Paths)
 
-On HPC clusters, libraries often reside in non-standard paths. anyFFT allows you to specify these locations via environment variables before building to bypass automatic detection.
+On HPC clusters or inside Conda environments, libraries often reside in non-standard module paths. Instead of relying on legacy environment variables (like `FFTW_ROOT` or `CUDA_HOME`), anyFFT uses `scikit-build-core` to pass standard CMake arguments directly to the build system.
 
-Available Build Variables:
+**Available Build Flags (`-C cmake.args="..."`):**
 
-- `MAX_JOBS`: Number of parallel workers for compiling GPU source files (defaults to total CPU cores).
-- `FFTW_ROOT`: Path to FFTW3 installation.
-- `MPI_HOME`: Path to MPI installation (bypasses `mpi4py` detection if set).
-- `CUDA_HOME`: Path to CUDA Toolkit (default `/usr/local/cuda`).
-- `ROCM_HOME`: Path to AMD ROCm Toolkit (defaults to /opt/rocm).
-- `USE_HIP`: Set to "1" to force building with HIP/ROCm instead of CUDA on hybrid systems.
-- `CUFFTMP_ROOT`: Path to NVIDIA cuFFTMp library headers/binaries.
-- `NVSHMEM_HOME`: Path to the NVIDIA NVSHMEM library.
-- `ROCSHMEM_HOME`: Path to the AMD rocSHMEM library.
+- **Backend Toggles:**
+  - `-DANYFFT_USE_FFTW=ON|OFF` (Default: ON)
+  - `-DANYFFT_USE_MPI=ON|OFF` (Default: ON)
+  - `-DANYFFT_USE_CUDA=ON|OFF` (Default: OFF)
+  - `-DANYFFT_USE_HIP=ON|OFF` (Default: OFF)
+- **Hardware Toolkits & Architecture:**
+  - `-DCUDAToolkit_ROOT=/path/to/cuda` (Explicitly set CUDA root)
+  - `-DCMAKE_CUDA_ARCHITECTURES=native|80;86;90` (Target specific GPU compute capabilities)
+  - `-DCMAKE_CXX_COMPILER=hipcc` (Required when building for AMD/HIP)
+- **Compilers & MPI:**
+  - `-DMPI_CXX_COMPILER=/path/to/mpicxx` (Force a specific MPI wrapper if automatic detection fails)
+- **Library Search Paths (`CMAKE_PREFIX_PATH`):**
+  If CMake cannot find libraries like FFTW, cuFFTMp, or NVSHMEM, you must provide their roots in a semicolon-separated string:
+  - `-DCMAKE_PREFIX_PATH='/path/to/fftw;/path/to/cufftmp;/path/to/nvshmem'`
 
-Example Build Command:
+If you are building the ultimate hybrid version of the package (CPU + Distributed + CUDA) on a locked-down cluster where *nothing* is in a standard location, you can explicitly map every single path like this:
 
-```Bash
-# Example for a cluster with non-standard paths
-export MPI_HOME=/opt/openmpi_rocm_aware_4
-export ROCM_HOME=/opt/rocm-5.4.0
-export ROCSHMEM_HOME=/opt/rocm/rocshmem
-export USE_HIP=1
-
-pip install -v .
+```bash
+pip install -v ".[test,mpi,gpu]" \
+  -C cmake.args="-DANYFFT_USE_FFTW=ON" \
+  -C cmake.args="-DANYFFT_USE_MPI=ON" \
+  -C cmake.args="-DANYFFT_USE_CUDA=ON" \
+  -C cmake.args="-DCUDAToolkit_ROOT=/opt/nvidia/cuda-12.8" \
+  -C cmake.args="-DCMAKE_CUDA_ARCHITECTURES=80;90" \
+  -C cmake.args="-DMPI_CXX_COMPILER=/opt/openmpi-4.1.5/bin/mpicxx" \
+  -C cmake.args="-DCMAKE_PREFIX_PATH='/opt/fftw/3.3.10;/opt/nvidia/hpc_sdk/math_libs;/opt/nvidia/hpc_sdk/comm_libs/nvshmem'"
 ```
+
+> **Note: For AMD GPUs:**
+> Change ANYFFT_USE_CUDA to OFF, turn ANYFFT_USE_HIP to ON, add -DCMAKE_CXX_COMPILER=hipcc, and include your ROCm paths in the CMAKE_PREFIX_PATH.
+
 
 ## Usage
 

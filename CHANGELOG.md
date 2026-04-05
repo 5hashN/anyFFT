@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.12] - 2026-04-02
+
+- setup pytest integration
+- transition to scikit_build_core with `CMakeLists.txt`
+
 ## [0.1.11] - 2026-03-30
 
 - code linting for c++17 compliance
